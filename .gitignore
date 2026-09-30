@@ -1,0 +1,14 @@
+# 第三方打包工具（自行下载放置）
+upx/
+
+# PyInstaller 构建产物
+build/
+*.spec
+__pycache__/
+
+# 运行/测试残留
+selftest_out/
+selftest.log
+
+# 下载输出（运行时由用户指定目录）
+4kdesk_images/
