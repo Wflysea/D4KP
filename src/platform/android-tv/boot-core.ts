@@ -362,7 +362,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       </div>`;
 
     const serverEl = el.querySelector('#f-server') as HTMLInputElement;
-    serverEl.focus();
+    // 注意：不自动聚焦输入框——聚焦会立即弹出输入法，WebView 视口重算导致页面缩到左上角；
+    // 由用户按方向键/点击选中输入框后再输入
     const msgEl = el.querySelector('#atv-msg') as HTMLElement;
 
     (el.querySelector('#f-next') as HTMLButtonElement).addEventListener('click', async () => {
@@ -453,7 +454,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         </form>
       </div>`;
 
-    (el.querySelector('#f-dwell') as HTMLInputElement).focus();
+    // 不自动聚焦输入框（避免弹出输入法导致页面缩到左上角）；聚焦「保存」按钮便于遥控器直接操作
+    (el.querySelector('#f-save') as HTMLButtonElement).focus();
     const msgEl = el.querySelector('#atv-msg') as HTMLElement;
 
     (el.querySelector('#f-save') as HTMLButtonElement).addEventListener('click', async () => {

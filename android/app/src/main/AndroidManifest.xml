@@ -23,6 +23,7 @@
             android:exported="true"
             android:theme="@style/AppTheme"
             android:screenOrientation="landscape"
+            android:windowSoftInputMode="adjustNothing"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize">
 
             <intent-filter>
