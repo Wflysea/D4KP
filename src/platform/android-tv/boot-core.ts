@@ -10,6 +10,7 @@ import { sha256Hex } from '../../webdav/cert';
 import { sniffMime } from './content-cache';
 import type { Playlist, WallpaperItem } from '../../types/domain';
 import type { DavEndpoint } from '../../webdav/types';
+import { version as APP_VERSION } from '../../../package.json';
 
 export interface WallpaperNav {
   next(): void;
@@ -59,8 +60,11 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
   app.host.keepAwake(true);
 
   let setupOpen = false;
-  /** 设置向导当前步骤：back 键据此做页面内导航（文件夹浏览器 → 第 1 步），不退出应用 */
-  let setupStep: 'step1' | 'folders' | null = null;
+  /**
+   * 设置向导当前步骤：back 键据此做页面内导航（文件夹浏览器 → 连接页；播放设置/连接页 → 有配置则回播放），
+   * 不退出应用。连接 NAS 与播放设置拆分为两个独立界面。
+   */
+  let setupStep: 'conn' | 'play' | 'folders' | null = null;
   /** 当前设置上下文，供 back 键回退时重建第 1 步表单 */
   let setupCtx: {
     endpoint: DavEndpoint;
@@ -321,40 +325,37 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     }
   }
 
-  /** 设置向导第 1 步：填写服务器与账号，先测试连接成功，再进入选目录 */
-  async function renderStep1(prefill: {
+  /** 设置界面 1/2：连接 NAS（服务器与账号）。播放偏好（间隔/随机/时间/网速）在独立的「播放设置」页。 */
+  function renderConnPage(prefill: {
     server: string;
-    rootPath: string;
     username: string;
     password: string;
     verifySsl: boolean;
+    /** 已保存的播放偏好，测试连接成功后带入目录浏览器与播放设置页 */
+    rootPath?: string;
     dwellSec?: number;
     order?: 'sequential' | 'random';
     showClock?: boolean;
     showSpeed?: boolean;
-  }): Promise<void> {
+  }): void {
     setupOpen = true;
-    setupStep = 'step1';
+    setupStep = 'conn';
     showClock = false;
     showSpeed = false;
     applyInfoOverlay(); // 设置页隐藏时间/网速叠加层
     el.innerHTML = `
       <div id="atv-setup">
-        <h1>连接 NAS</h1>
-        <p class="atv-hint">先填写服务器地址与账号，连接成功后再选择壁纸目录。OpenList / Alist 用户：地址需以 <code>/dav</code> 结尾，如 <code>http://192.168.1.50:5244/dav</code>。</p>
+        <h1>设置 · 连接 NAS</h1>
+        <p class="atv-hint">填写服务器地址与账号。OpenList / Alist 用户：地址需以 <code>/dav</code> 结尾，如 <code>http://192.168.1.50:5244/dav</code>。播放偏好请到「播放设置」页修改。</p>
         <form id="atv-form" class="atv-form">
           <label>服务器地址<input id="f-server" type="text" placeholder="http://192.168.1.50:5244/dav（OpenList）或 https://nas.local:5006" value="${escapeHtml(prefill.server)}" /></label>
           <label>用户名<input id="f-user" type="text" value="${escapeHtml(prefill.username)}" /></label>
           <label>密码<input id="f-pass" type="password" value="${escapeHtml(prefill.password)}" /></label>
-          <label>自动更换间隔（秒，3–3600）<input id="f-dwell" type="text" inputmode="numeric" value="${Math.max(3, prefill.dwellSec ?? 15)}" /></label>
-          <label class="atv-check"><input id="f-random" type="checkbox" ${prefill.order === 'random' ? 'checked' : ''} /> 随机播放（不勾选则按文件夹顺序）</label>
-          <label class="atv-check"><input id="f-clock" type="checkbox" ${prefill.showClock ? 'checked' : ''} /> 播放界面显示当前时间</label>
-          <label class="atv-check"><input id="f-speed" type="checkbox" ${prefill.showSpeed ? 'checked' : ''} /> 播放界面显示网速</label>
           <label class="atv-check"><input id="f-verify" type="checkbox" ${prefill.verifySsl === false ? '' : 'checked'} /> 校验 TLS 证书（自签名 NAS 请取消勾选）</label>
           <div id="atv-msg" class="atv-msg"></div>
           <div class="atv-actions">
             <button id="f-next" type="button" class="atv-btn">测试连接并继续</button>
-            ${prefill.server ? '<button id="f-save" type="button" class="atv-btn">保存设置并播放</button>' : ''}
+            ${prefill.server ? '<button id="f-playset" type="button" class="atv-btn">播放设置</button>' : ''}
             ${prefill.server ? '<button id="f-clear" type="button" class="atv-btn atv-btn-ghost">清除已保存</button>' : ''}
           </div>
         </form>
@@ -364,53 +365,40 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     serverEl.focus();
     const msgEl = el.querySelector('#atv-msg') as HTMLElement;
 
-    /** 读取第 1 步表单的公共字段（f-next 与 f-save 共用） */
-    function readForm(): {
-      server: string;
-      dwell: number;
-      order: 'sequential' | 'random';
-      clock: boolean;
-      speed: boolean;
-      base: DavEndpoint;
-    } | null {
+    (el.querySelector('#f-next') as HTMLButtonElement).addEventListener('click', async () => {
       const server = serverEl.value.trim();
       if (!server) {
         msgEl.textContent = '请填写服务器地址';
-        return null;
+        return;
       }
-      const dwellRaw = parseInt((el.querySelector('#f-dwell') as HTMLInputElement).value, 10);
-      const dwell = Number.isFinite(dwellRaw) && dwellRaw >= 3 ? Math.min(3600, dwellRaw) : 15;
-      const order: 'sequential' | 'random' = (el.querySelector('#f-random') as HTMLInputElement)
-        .checked
-        ? 'random'
-        : 'sequential';
-      return {
+      const endpoint: DavEndpoint = {
         server,
-        dwell,
-        order,
-        clock: (el.querySelector('#f-clock') as HTMLInputElement).checked,
-        speed: (el.querySelector('#f-speed') as HTMLInputElement).checked,
-        base: {
-          server,
-          rootPath: '/',
-          username: (el.querySelector('#f-user') as HTMLInputElement).value,
-          password: (el.querySelector('#f-pass') as HTMLInputElement).value,
-          https: server.startsWith('https'),
-          verifySsl: (el.querySelector('#f-verify') as HTMLInputElement).checked,
-        },
+        rootPath: '/',
+        username: (el.querySelector('#f-user') as HTMLInputElement).value,
+        password: (el.querySelector('#f-pass') as HTMLInputElement).value,
+        https: server.startsWith('https'),
+        verifySsl: (el.querySelector('#f-verify') as HTMLInputElement).checked,
       };
-    }
-
-    (el.querySelector('#f-next') as HTMLButtonElement).addEventListener('click', async () => {
-      const f = readForm();
-      if (!f) return;
       msgEl.textContent = '正在连接…';
       try {
         // 先保存并真正建立连接，验证服务器/账号可用，随后进入目录浏览
-        await app.setEndpoint(f.base, f.dwell, f.order, f.clock, f.speed);
+        await app.setEndpoint(
+          endpoint,
+          prefill.dwellSec ?? 15,
+          prefill.order ?? 'sequential',
+          prefill.showClock ?? false,
+          prefill.showSpeed ?? false,
+        );
         const ctx = await app.boot();
         await ctx.dav.list('/', { depth: 1 }); // 验证根目录可读
-        renderFolderBrowser(f.base, '/', f.dwell, f.order, f.clock, f.speed);
+        renderFolderBrowser(
+          endpoint,
+          '/',
+          prefill.dwellSec ?? 15,
+          prefill.order ?? 'sequential',
+          prefill.showClock ?? false,
+          prefill.showSpeed ?? false,
+        );
       } catch (err: unknown) {
         const m = err instanceof Error ? err.message : String(err);
         msgEl.innerHTML =
@@ -418,27 +406,108 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       }
     });
 
-    // 只改间隔/随机/显示开关时无需重新连接选目录：沿用已保存目录直接保存并回播放
-    (el.querySelector('#f-save') as HTMLButtonElement | null)?.addEventListener('click', async () => {
-      const f = readForm();
-      if (!f) return;
-      const ep: DavEndpoint = { ...f.base, rootPath: prefill.rootPath || '/' };
+    (el.querySelector('#f-playset') as HTMLButtonElement | null)?.addEventListener('click', () => {
+      renderPlayPage({
+        rootPath: prefill.rootPath ?? '/',
+        dwellSec: prefill.dwellSec ?? 15,
+        order: prefill.order ?? 'sequential',
+        showClock: prefill.showClock ?? false,
+        showSpeed: prefill.showSpeed ?? false,
+      });
+    });
+
+    (el.querySelector('#f-clear') as HTMLButtonElement | null)?.addEventListener('click', () => {
+      app.vault.clear();
+      renderConnPage({ server: '', username: '', password: '', verifySsl: true });
+    });
+  }
+
+  /** 设置界面 2/2：播放设置（间隔/随机/时间/网速）+ 软件版本信息，改完直接保存回播放 */
+  function renderPlayPage(prefill: {
+    rootPath: string;
+    dwellSec: number;
+    order: 'sequential' | 'random';
+    showClock: boolean;
+    showSpeed: boolean;
+  }): void {
+    setupOpen = true;
+    setupStep = 'play';
+    showClock = false;
+    showSpeed = false;
+    applyInfoOverlay(); // 设置页隐藏时间/网速叠加层
+    el.innerHTML = `
+      <div id="atv-setup">
+        <h1>设置 · 播放设置</h1>
+        <p class="atv-hint">修改播放偏好后点「保存设置并播放」立即生效，无需重新连接 NAS。连接地址与账号请到「连接设置」页修改。</p>
+        <form id="atv-form" class="atv-form">
+          <label>自动更换间隔（秒，3–3600）<input id="f-dwell" type="text" inputmode="numeric" value="${Math.max(3, prefill.dwellSec)}" /></label>
+          <label class="atv-check"><input id="f-random" type="checkbox" ${prefill.order === 'random' ? 'checked' : ''} /> 随机播放（不勾选则按文件夹顺序）</label>
+          <label class="atv-check"><input id="f-clock" type="checkbox" ${prefill.showClock ? 'checked' : ''} /> 播放界面显示当前时间</label>
+          <label class="atv-check"><input id="f-speed" type="checkbox" ${prefill.showSpeed ? 'checked' : ''} /> 播放界面显示网速</label>
+          <div id="atv-msg" class="atv-msg"></div>
+          <div class="atv-actions">
+            <button id="f-save" type="button" class="atv-btn">保存设置并播放</button>
+            <button id="f-conn" type="button" class="atv-btn atv-btn-ghost">连接设置</button>
+          </div>
+          <div class="atv-version">软件版本 v${escapeHtml(APP_VERSION)}</div>
+        </form>
+      </div>`;
+
+    (el.querySelector('#f-dwell') as HTMLInputElement).focus();
+    const msgEl = el.querySelector('#atv-msg') as HTMLElement;
+
+    (el.querySelector('#f-save') as HTMLButtonElement).addEventListener('click', async () => {
+      const saved = await app.vault.load();
+      if (!saved?.server) {
+        msgEl.textContent = '尚未连接 NAS，请先到「连接设置」页完成连接';
+        return;
+      }
+      const dwellRaw = parseInt((el.querySelector('#f-dwell') as HTMLInputElement).value, 10);
+      const dwell = Number.isFinite(dwellRaw) && dwellRaw >= 3 ? Math.min(3600, dwellRaw) : 15;
+      const order: 'sequential' | 'random' = (el.querySelector('#f-random') as HTMLInputElement)
+        .checked
+        ? 'random'
+        : 'sequential';
+      const clock = (el.querySelector('#f-clock') as HTMLInputElement).checked;
+      const speed = (el.querySelector('#f-speed') as HTMLInputElement).checked;
       msgEl.textContent = '正在保存…';
       try {
-        await app.setEndpoint(ep, f.dwell, f.order, f.clock, f.speed);
-        void connectAndPlay(ep.rootPath);
+        await app.setEndpoint(
+          {
+            server: saved.server,
+            rootPath: saved.rootPath,
+            username: saved.username,
+            password: saved.password,
+            https: saved.https,
+            verifySsl: saved.verifySsl,
+            certFingerprint: saved.certFingerprint,
+          },
+          dwell,
+          order,
+          clock,
+          speed,
+        );
+        void connectAndPlay(saved.rootPath);
       } catch (err: unknown) {
         const m = err instanceof Error ? err.message : String(err);
         msgEl.textContent = `保存失败：${m}`;
       }
     });
 
-    if (prefill.server) {
-      (el.querySelector('#f-clear') as HTMLButtonElement | null)?.addEventListener('click', () => {
-        app.vault.clear();
-        void renderStep1({ server: '', rootPath: '/', username: '', password: '', verifySsl: true });
+    (el.querySelector('#f-conn') as HTMLButtonElement).addEventListener('click', async () => {
+      const saved = await app.vault.load();
+      renderConnPage({
+        server: saved?.server ?? '',
+        username: saved?.username ?? '',
+        password: saved?.password ?? '',
+        verifySsl: saved?.verifySsl ?? true,
+        rootPath: saved?.rootPath,
+        dwellSec: prefill.dwellSec,
+        order: prefill.order,
+        showClock: prefill.showClock,
+        showSpeed: prefill.showSpeed,
       });
-    }
+    });
   }
 
   /**
@@ -487,12 +556,12 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       ),
     );
     (el.querySelector('#f-back') as HTMLButtonElement).addEventListener('click', () =>
-      renderStep1({
+      renderConnPage({
         server: endpoint.server,
-        rootPath: endpoint.rootPath,
         username: endpoint.username,
         password: endpoint.password,
         verifySsl: endpoint.verifySsl,
+        rootPath: endpoint.rootPath,
         dwellSec,
         order,
         showClock: showClockOpt,
@@ -502,7 +571,14 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     (el.querySelector('#f-pick') as HTMLButtonElement).addEventListener('click', async () => {
       const ep: DavEndpoint = { ...endpoint, rootPath: currentPath };
       await app.setEndpoint(ep, dwellSec, order, showClockOpt, showSpeedOpt);
-      void connectAndPlay(currentPath);
+      // 选定目录后进入「播放设置」页：可调整偏好后一键保存回播放
+      renderPlayPage({
+        rootPath: currentPath,
+        dwellSec,
+        order,
+        showClock: showClockOpt ?? false,
+        showSpeed: showSpeedOpt ?? false,
+      });
     });
 
     void (async () => {
@@ -551,12 +627,20 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     })();
   }
 
-  /** 打开设置向导（菜单键或首启无凭证时调用） */
+  /** 打开设置（菜单键或首启无凭证时调用）：已有配置进「播放设置」页，否则进「连接 NAS」页 */
   async function openSetup(): Promise<void> {
     const saved = await app.vault.load();
-    void renderStep1(
-      saved ?? { server: '', rootPath: '/', username: '', password: '', verifySsl: true },
-    );
+    if (saved?.server) {
+      renderPlayPage({
+        rootPath: saved.rootPath ?? '/',
+        dwellSec: saved.dwellSec ?? 15,
+        order: saved.order ?? 'sequential',
+        showClock: saved.showClock ?? false,
+        showSpeed: saved.showSpeed ?? false,
+      });
+    } else {
+      renderConnPage({ server: '', username: '', password: '', verifySsl: true });
+    }
   }
 
   // 导航句柄：设置态下忽略切图，避免表单误触
@@ -591,15 +675,22 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       }
     },
     back() {
-      // 返回键：文件夹浏览器 → 第 1 步；第 1 步（有已保存配置）→ 退出设置回播放；永不误退应用
+      // 返回键：文件夹浏览器 → 连接页；播放设置/连接页 → 已有配置则退出设置回播放；永不误退应用
+      const backToPlayback = (): void => {
+        void (async () => {
+          const sv = await app.vault.load();
+          if (sv?.server) void connectAndPlay(sv.rootPath);
+          else renderConnPage({ server: '', username: '', password: '', verifySsl: true });
+        })();
+      };
       if (setupStep === 'folders' && setupCtx) {
         const { endpoint, dwellSec, order, showClock, showSpeed } = setupCtx;
-        void renderStep1({
+        renderConnPage({
           server: endpoint.server,
-          rootPath: endpoint.rootPath,
           username: endpoint.username,
           password: endpoint.password,
           verifySsl: endpoint.verifySsl,
+          rootPath: endpoint.rootPath,
           dwellSec,
           order,
           showClock,
@@ -607,12 +698,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         });
         return;
       }
-      if (setupStep === 'step1') {
-        void (async () => {
-          const sv = await app.vault.load();
-          if (sv?.server) void connectAndPlay(sv.rootPath); // 已有配置：返回播放
-        })();
-      }
+      if (setupStep === 'play' || setupStep === 'conn') backToPlayback();
     },
   };
 
