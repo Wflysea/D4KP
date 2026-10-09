@@ -54,6 +54,8 @@ class WallpaperBridge(private val activity: Activity) {
             putBoolean("https", o.optBoolean("https", true))
             putBoolean("verifySsl", o.optBoolean("verifySsl", true))
             putString("certFingerprint", o.optString("certFingerprint", ""))
+            putInt("dwellSec", o.optInt("dwellSec", 15))
+            putString("order", o.optString("order", "sequential"))
             apply()
         }
     }
@@ -70,6 +72,8 @@ class WallpaperBridge(private val activity: Activity) {
             put("https", creds.getBoolean("https", true))
             put("verifySsl", creds.getBoolean("verifySsl", true))
             put("certFingerprint", creds.getString("certFingerprint", ""))
+            put("dwellSec", creds.getInt("dwellSec", 15))
+            put("order", creds.getString("order", "sequential"))
         }.toString()
     }
 

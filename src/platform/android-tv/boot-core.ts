@@ -17,6 +17,8 @@ export interface WallpaperNav {
   openSettings(): void;
   /** OK 键/媒体键：暂停或恢复自动轮播 */
   togglePause(): void;
+  /** 返回键：设置页内导航（文件夹浏览器 → 第 1 步），播放态忽略，绝不退出应用 */
+  back(): void;
 }
 
 export interface BootResult {
@@ -46,7 +48,10 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
   const app = createAndroidTvApp();
   const elRaw =
     root ?? (typeof document !== 'undefined' ? (document.getElementById('app') ?? document.body) : null);
-  const idle: BootResult = { app, nav: { next() {}, prev() {}, openSettings() {}, togglePause() {} } };
+  const idle: BootResult = {
+    app,
+    nav: { next() {}, prev() {}, openSettings() {}, togglePause() {}, back() {} },
+  };
   if (!elRaw) return idle;
   const el: HTMLElement = elRaw;
 
@@ -54,6 +59,14 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
   app.host.keepAwake(true);
 
   let setupOpen = false;
+  /** 设置向导当前步骤：back 键据此做页面内导航（文件夹浏览器 → 第 1 步），不退出应用 */
+  let setupStep: 'step1' | 'folders' | null = null;
+  /** 当前设置上下文，供 back 键回退时重建第 1 步表单 */
+  let setupCtx: {
+    endpoint: DavEndpoint;
+    dwellSec: number;
+    order: 'sequential' | 'random';
+  } | null = null;
   let currentUrl: string | null = null;
   /** 连接成功后的核心层上下文（懒加载下载图片时使用） */
   let davCtx: AppContext | null = null;
@@ -138,22 +151,51 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       stage.innerHTML = '<div id="atv-loading">没有可显示的图片</div>';
       return;
     }
-    stage.innerHTML = '<div id="atv-loading">正在加载图片…</div>';
+    // 双缓冲：加载期间保留旧图（消除黑屏），仅在角落显示小提示；新图就绪后原子替换
+    showLoadingBadge(true);
     void fetchItemUrl(item).then((url) => {
       const stageNow = el.querySelector('#atv-stage') as HTMLElement | null;
       if (!stageNow) return;
+      showLoadingBadge(false);
       if (!url) {
-        stageNow.innerHTML =
-          '<div id="atv-loading">图片加载失败（可能已被移动或删除），请按左右键切换</div>';
+        // 仅当屏幕上还没有任何图片时才覆盖为错误提示，否则保留旧图不打断观看
+        if (!stageNow.querySelector('.atv-img')) {
+          stageNow.innerHTML =
+            '<div id="atv-loading">图片加载失败（可能已被移动或删除），请按左右键切换</div>';
+        }
         return;
       }
       if (currentUrl) URL.revokeObjectURL(currentUrl);
       currentUrl = url;
       stageNow.innerHTML = `<img class="atv-img" src="${url}" alt="" />`;
       if (useAppStore.getState().paused) showPausedBadge(true);
+      try {
+        localStorage.setItem('atv.lastPath', item.path); // 记住进度：重启后从这张继续
+      } catch {
+        /* 存储不可用时忽略 */
+      }
       scheduleNext();
       prefetchNeighbors(); // 后台预取前后两张，下次切换即点即开
     });
+  }
+
+  /** 加载中的小提示（不遮挡旧图） */
+  function showLoadingBadge(on: boolean): void {
+    const stage = el.querySelector('#atv-stage') as HTMLElement | null;
+    if (!stage) return;
+    if (on) {
+      stage.style.position = 'relative';
+      if (!stage.querySelector('#atv-loading-badge')) {
+        const d = document.createElement('div');
+        d.id = 'atv-loading-badge';
+        d.textContent = '⏳ 加载中…';
+        d.style.cssText =
+          'position:absolute;left:24px;top:20px;background:rgba(0,0,0,.55);color:#fff;padding:6px 16px;border-radius:16px;font-size:15px;z-index:9;';
+        stage.appendChild(d);
+      }
+    } else {
+      stage.querySelector('#atv-loading-badge')?.remove();
+    }
   }
 
   function currentItem(): WallpaperItem | undefined {
@@ -163,6 +205,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
 
   async function connectAndPlay(rootPath?: string): Promise<void> {
     setupOpen = false;
+    setupStep = null;
     el.innerHTML = '<div id="atv-stage"><div id="atv-loading">正在连接 NAS…</div></div>';
     try {
       const ctx = await app.boot();
@@ -185,7 +228,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         id: 'default',
         name: 'NAS 壁纸',
         source: { type: 'directory', accountId: 'primary', root },
-        order: 'sequential',
+        order: saved?.order ?? 'sequential',
         transition: 'kenburns',
         dwellSec: saved?.dwellSec ?? 15,
       };
@@ -193,6 +236,17 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       if (photos.length === 0) {
         el.innerHTML = `<div id="atv-stage"><div id="atv-loading">目录「${escapeHtml(root)}」中没有图片文件，请在设置中更换路径</div></div>`;
       } else {
+        // 续播：从上次显示的那张继续（重启不再从头开始）
+        let lastPath: string | null = null;
+        try {
+          lastPath = localStorage.getItem('atv.lastPath');
+        } catch {
+          /* 存储不可用时忽略 */
+        }
+        if (lastPath) {
+          const idx = photos.findIndex((p) => p.path === lastPath);
+          if (idx > 0) useAppStore.getState().dispatch({ type: 'JUMP', index: idx });
+        }
         renderItem(currentItem());
       }
     } catch (err: unknown) {
@@ -209,8 +263,10 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     password: string;
     verifySsl: boolean;
     dwellSec?: number;
+    order?: 'sequential' | 'random';
   }): Promise<void> {
     setupOpen = true;
+    setupStep = 'step1';
     el.innerHTML = `
       <div id="atv-setup">
         <h1>连接 NAS</h1>
@@ -220,6 +276,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           <label>用户名<input id="f-user" type="text" value="${escapeHtml(prefill.username)}" /></label>
           <label>密码<input id="f-pass" type="password" value="${escapeHtml(prefill.password)}" /></label>
           <label>自动更换间隔（秒，3–3600）<input id="f-dwell" type="text" inputmode="numeric" value="${Math.max(3, prefill.dwellSec ?? 15)}" /></label>
+          <label class="atv-check"><input id="f-random" type="checkbox" ${prefill.order === 'random' ? 'checked' : ''} /> 随机播放（不勾选则按文件夹顺序）</label>
           <label class="atv-check"><input id="f-verify" type="checkbox" ${prefill.verifySsl === false ? '' : 'checked'} /> 校验 TLS 证书（自签名 NAS 请取消勾选）</label>
           <div id="atv-msg" class="atv-msg"></div>
           <div class="atv-actions">
@@ -241,6 +298,10 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       }
       const dwellRaw = parseInt((el.querySelector('#f-dwell') as HTMLInputElement).value, 10);
       const dwell = Number.isFinite(dwellRaw) && dwellRaw >= 3 ? Math.min(3600, dwellRaw) : 15;
+      const order: 'sequential' | 'random' = (el.querySelector('#f-random') as HTMLInputElement)
+        .checked
+        ? 'random'
+        : 'sequential';
       const endpoint: DavEndpoint = {
         server,
         rootPath: '/',
@@ -252,10 +313,10 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       msgEl.textContent = '正在连接…';
       try {
         // 先保存并真正建立连接，验证服务器/账号可用，随后进入目录浏览
-        await app.setEndpoint(endpoint, dwell);
+        await app.setEndpoint(endpoint, dwell, order);
         const ctx = await app.boot();
         await ctx.dav.list('/', { depth: 1 }); // 验证根目录可读
-        renderFolderBrowser(endpoint, '/', dwell);
+        renderFolderBrowser(endpoint, '/', dwell, order);
       } catch (err: unknown) {
         const m = err instanceof Error ? err.message : String(err);
         msgEl.innerHTML =
@@ -275,8 +336,15 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
    * 设置向导第 2 步：连接成功后，在 NAS 目录树里实际点选壁纸文件夹。
    * 不提供手动输入框——通过面包屑回跳、点子文件夹逐级下钻来浏览，最终「选择当前目录」确定。
    */
-  function renderFolderBrowser(endpoint: DavEndpoint, currentPath: string, dwellSec: number): void {
+  function renderFolderBrowser(
+    endpoint: DavEndpoint,
+    currentPath: string,
+    dwellSec: number,
+    order: 'sequential' | 'random',
+  ): void {
     setupOpen = true;
+    setupStep = 'folders';
+    setupCtx = { endpoint, dwellSec, order };
     const segs = currentPath.split('/').filter(Boolean);
     const crumbs = ['/'].concat(segs.map((_, i) => '/' + segs.slice(0, i + 1).join('/')));
     const crumbHtml = crumbs
@@ -303,7 +371,9 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     const foldersEl = el.querySelector('#atv-folders') as HTMLElement;
 
     el.querySelectorAll<HTMLButtonElement>('.atv-crumb').forEach((b) =>
-      b.addEventListener('click', () => renderFolderBrowser(endpoint, b.dataset.path || '/', dwellSec)),
+      b.addEventListener('click', () =>
+        renderFolderBrowser(endpoint, b.dataset.path || '/', dwellSec, order),
+      ),
     );
     (el.querySelector('#f-back') as HTMLButtonElement).addEventListener('click', () =>
       renderStep1({
@@ -313,11 +383,12 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         password: endpoint.password,
         verifySsl: endpoint.verifySsl,
         dwellSec,
+        order,
       }),
     );
     (el.querySelector('#f-pick') as HTMLButtonElement).addEventListener('click', async () => {
       const ep: DavEndpoint = { ...endpoint, rootPath: currentPath };
-      await app.setEndpoint(ep, dwellSec);
+      await app.setEndpoint(ep, dwellSec, order);
       void connectAndPlay(currentPath);
     });
 
@@ -342,7 +413,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
             .join('');
           foldersEl.querySelectorAll<HTMLButtonElement>('.atv-folder').forEach((b) =>
             b.addEventListener('click', () =>
-              renderFolderBrowser(endpoint, joinPath(currentPath, b.dataset.folder ?? ''), dwellSec),
+              renderFolderBrowser(endpoint, joinPath(currentPath, b.dataset.folder ?? ''), dwellSec, order),
             ),
           );
           if (fileCount > 0) {
@@ -397,6 +468,21 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       } else {
         showPausedBadge(false);
         scheduleNext(); // 恢复：从当前图重新计时
+      }
+    },
+    back() {
+      // 返回键：文件夹浏览器 → 第 1 步；第 1 步与播放态不动作（永不误退应用）
+      if (setupStep === 'folders' && setupCtx) {
+        const { endpoint, dwellSec, order } = setupCtx;
+        void renderStep1({
+          server: endpoint.server,
+          rootPath: endpoint.rootPath,
+          username: endpoint.username,
+          password: endpoint.password,
+          verifySsl: endpoint.verifySsl,
+          dwellSec,
+          order,
+        });
       }
     },
   };

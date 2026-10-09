@@ -48,6 +48,8 @@ export interface StoredCredential {
   certFingerprint?: string;
   /** 自动更换壁纸间隔（秒）；缺省 15 */
   dwellSec?: number;
+  /** 播放顺序：sequential 顺序 / random 随机；缺省顺序 */
+  order?: 'sequential' | 'random';
 }
 
 /** 凭据保险箱：在原生安全存储（Android Keystore / iOS Keychain）中持久化凭证 */

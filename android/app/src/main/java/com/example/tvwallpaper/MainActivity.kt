@@ -38,14 +38,23 @@ class MainActivity : Activity() {
     }
 
     /**
-     * 遥控器菜单键（KEYCODE_MENU）默认被系统用于弹出选项菜单，不会作为 DOM 键盘事件到达
-     * WebView，因此「设置」无法再次呼出。这里拦截它并直接调用 TS 暴露的全局函数
-     * window.__tvOpenSettings（见 entry.ts），稳定地重新打开设置面板；return true 消费该按键。
+     * 遥控器按键拦截：
+     *  - KEYCODE_MENU：系统默认用于弹出选项菜单，不会到达 WebView，转发给 __tvOpenSettings。
+     *  - KEYCODE_BACK：默认行为是退出 Activity。壁纸应用应常驻——返回键改为转发给
+     *    window.__tvBack，由 TS 侧决定「设置页内返回」或「播放态忽略」，永不误退应用。
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.keyCode == KeyEvent.KEYCODE_MENU) {
-            webView.evaluateJavascript("window.__tvOpenSettings && window.__tvOpenSettings()", null)
-            return true
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_MENU -> {
+                webView.evaluateJavascript("window.__tvOpenSettings && window.__tvOpenSettings()", null)
+                return true
+            }
+            KeyEvent.KEYCODE_BACK -> {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    webView.evaluateJavascript("window.__tvBack && window.__tvBack()", null)
+                }
+                return true
+            }
         }
         return super.dispatchKeyEvent(event)
     }

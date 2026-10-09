@@ -18,7 +18,7 @@ export interface AndroidTvApp {
   readonly cache: AndroidTvContentCache;
   readonly catalog: MemoryCatalogStore;
   /** 保存 NAS 端点（加密持久化），随后可调用 boot */
-  setEndpoint(endpoint: DavEndpoint, dwellSec?: number): Promise<void>;
+  setEndpoint(endpoint: DavEndpoint, dwellSec?: number, order?: 'sequential' | 'random'): Promise<void>;
   /** 读取已保存凭证并装配核心层上下文；无凭证则用默认端点（首启向导） */
   boot(): Promise<AppContext>;
 }
@@ -59,8 +59,8 @@ export function createAndroidTvApp(): AndroidTvApp {
     http: new AndroidTvHttpClient(bridge),
     cache,
     catalog,
-    async setEndpoint(endpoint: DavEndpoint, dwellSec?: number): Promise<void> {
-      const cred: StoredCredential = { accountId: 'primary', ...endpoint, dwellSec };
+    async setEndpoint(endpoint: DavEndpoint, dwellSec?: number, order?: 'sequential' | 'random'): Promise<void> {
+      const cred: StoredCredential = { accountId: 'primary', ...endpoint, dwellSec, order };
       await vault.save(cred);
     },
     async boot(): Promise<AppContext> {

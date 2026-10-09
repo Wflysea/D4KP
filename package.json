@@ -1,6 +1,6 @@
 {
   "name": "tv-wallpaper-app",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "private": true,
   "type": "module",
   "description": "面向 NAS 用户的电视/手机壁纸客户端（WebDAV 直连，TypeScript 技术栈）",
