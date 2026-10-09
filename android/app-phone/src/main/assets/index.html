@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NAS 壁纸（手机）</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        color: #fff;
+        font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+        overflow: hidden;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+      #atv-stage {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+      }
+      .atv-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        animation: atv-fade 1.2s ease;
+      }
+      @keyframes atv-fade {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      #atv-loading {
+        opacity: 0.75;
+        font-size: 22px;
+        text-align: center;
+        padding: 0 8vw;
+        line-height: 1.6;
+      }
+      #atv-setup {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        padding: 6vh 8vw;
+        background: linear-gradient(160deg, #0b1f3a, #05101f);
+      }
+      #atv-setup h1 {
+        font-size: 34px;
+        margin: 0 0 8px;
+        color: #eaf2ff;
+      }
+      .atv-form {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        width: min(640px, 80vw);
+      }
+      .atv-form label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 16px;
+        color: #cfe0ff;
+      }
+      .atv-form input[type="text"],
+      .atv-form input[type="password"] {
+        font-size: 18px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 2px solid #2b4a7a;
+        background: #0a1830;
+        color: #fff;
+        outline: none;
+      }
+      .atv-form input:focus {
+        border-color: #4f9bff;
+        box-shadow: 0 0 0 3px rgba(79, 155, 255, 0.4);
+      }
+      .atv-check {
+        flex-direction: row !important;
+        align-items: center;
+        gap: 10px !important;
+      }
+      .atv-actions {
+        display: flex;
+        gap: 14px;
+        margin-top: 6px;
+      }
+      .atv-btn {
+        font-size: 18px;
+        padding: 12px 26px;
+        border-radius: 10px;
+        border: none;
+        background: #2f6fe0;
+        color: #fff;
+        cursor: pointer;
+      }
+      .atv-btn:focus {
+        outline: 3px solid #9cc4ff;
+      }
+      .atv-btn-ghost {
+        background: transparent;
+        border: 2px solid #3a5a8c;
+      }
+      .atv-hint {
+        font-size: 15px;
+        color: #9fc0ff;
+        margin: 0;
+        text-align: center;
+        line-height: 1.5;
+      }
+      .atv-msg {
+        font-size: 15px;
+        color: #ffd27a;
+        min-height: 20px;
+        text-align: center;
+        line-height: 1.6;
+      }
+      .atv-breadcrumb {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 2px;
+        align-items: center;
+        max-width: min(720px, 86vw);
+      }
+      .atv-crumb {
+        font-size: 15px;
+        padding: 4px 10px;
+        border-radius: 8px;
+        border: none;
+        background: #0e2347;
+        color: #bcd4ff;
+        cursor: pointer;
+      }
+      .atv-crumb:focus,
+      .atv-crumb:hover {
+        outline: 2px solid #4f9bff;
+        background: #143057;
+      }
+      .atv-sep {
+        color: #5e7aa8;
+      }
+      .atv-folders {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: min(720px, 86vw);
+        max-height: 42vh;
+        overflow-y: auto;
+      }
+      .atv-folder {
+        font-size: 18px;
+        padding: 12px 16px;
+        border-radius: 10px;
+        border: 2px solid #2b4a7a;
+        background: #0a1830;
+        color: #cfe0ff;
+        cursor: pointer;
+        text-align: left;
+        width: 100%;
+      }
+      .atv-folder:focus,
+      .atv-folder:hover {
+        border-color: #4f9bff;
+        outline: none;
+        background: #11294f;
+      }
+      .atv-empty,
+      .atv-loading {
+        font-size: 15px;
+        color: #9fc0ff;
+        text-align: center;
+        padding: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="./dist/android-phone.js"></script>
+  </body>
+</html>

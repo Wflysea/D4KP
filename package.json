@@ -1,0 +1,27 @@
+{
+  "name": "tv-wallpaper-app",
+  "version": "1.0.9",
+  "private": true,
+  "type": "module",
+  "description": "面向 NAS 用户的电视/手机壁纸客户端（WebDAV 直连，TypeScript 技术栈）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:android": "vite build --config vite.android-tv.config.ts",
+    "build:android-phone": "vite build --config vite.android-phone.config.ts",
+    "build:android-all": "pnpm build:android && pnpm build:android-phone",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "playwright": "^1.47.0",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0",
+    "vitest": "^2.1.0"
+  }
+}

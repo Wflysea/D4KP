@@ -1,0 +1,24 @@
+# 依赖与构建产物
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Android 构建产物
+android/.gradle/
+android/build/
+android/app/build/
+android/app-phone/build/
+android/local.properties
+android/.idea/
+*.iml
+
+# 签名密钥：绝不入库（keystore.properties 含明文密码）
+android/keystore.properties
+android/release-keystore.jks
+*.jks
+*.keystore
+
+# 编辑器/系统
+.DS_Store
+.vscode/
+.idea/
