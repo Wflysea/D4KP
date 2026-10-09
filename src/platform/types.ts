@@ -50,6 +50,10 @@ export interface StoredCredential {
   dwellSec?: number;
   /** 播放顺序：sequential 顺序 / random 随机；缺省顺序 */
   order?: 'sequential' | 'random';
+  /** 播放界面显示当前时间 */
+  showClock?: boolean;
+  /** 播放界面显示下载网速 */
+  showSpeed?: boolean;
 }
 
 /** 凭据保险箱：在原生安全存储（Android Keystore / iOS Keychain）中持久化凭证 */

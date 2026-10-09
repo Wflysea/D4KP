@@ -30,6 +30,11 @@ class MainActivity : Activity() {
             settings.mediaPlaybackRequiresUserGesture = false
             settings.allowFileAccess = true
             settings.cacheMode = WebSettings.LOAD_DEFAULT
+            // TV 分辨率/密度差异大：宽视口 + 概览模式让页面按 device-width 铺满全屏，
+            // 修复设置页内容缩小到屏幕左上角的问题；固定 textZoom 防系统大字体破坏布局
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+            settings.textZoom = 100
             webViewClient = WebViewClient()
             addJavascriptInterface(WallpaperBridge(this@MainActivity), "AndroidWallpaper")
             loadUrl("file:///android_asset/index.html")

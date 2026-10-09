@@ -66,6 +66,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     endpoint: DavEndpoint;
     dwellSec: number;
     order: 'sequential' | 'random';
+    showClock?: boolean;
+    showSpeed?: boolean;
   } | null = null;
   let currentUrl: string | null = null;
   /** 连接成功后的核心层上下文（懒加载下载图片时使用） */
@@ -76,6 +78,57 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
   let dwellTimer: ReturnType<typeof setTimeout> | null = null;
   /** 只轮播图片文件（视频/文档等一律不进播放列表） */
   const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif|tiff?)$/i;
+
+  // —— 播放界面信息叠加层（时间 + 网速，可在设置中开关） ——
+  let showClock = false;
+  let showSpeed = false;
+  let infoTimer: ReturnType<typeof setInterval> | null = null;
+  /** 最近下载记录，用于计算最近 5 秒的平均网速 */
+  const speedLog: { t: number; bytes: number }[] = [];
+
+  function fmtSpeed(): string {
+    const now = Date.now();
+    while (speedLog.length > 0 && now - speedLog[0].t > 5000) speedLog.shift();
+    if (speedLog.length === 0) return '⬇ —';
+    const bytes = speedLog.reduce((a, b) => a + b.bytes, 0);
+    const secs = Math.max(1, (now - speedLog[0].t) / 1000);
+    const bps = bytes / secs;
+    const v = bps >= 1048576 ? (bps / 1048576).toFixed(2) + ' MB/s' : (bps / 1024).toFixed(0) + ' KB/s';
+    return '⬇ ' + v;
+  }
+
+  function updateInfo(): void {
+    const info = el.querySelector('#atv-info');
+    if (!info) return;
+    const parts: string[] = [];
+    if (showClock) {
+      const d = new Date();
+      parts.push(
+        String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'),
+      );
+    }
+    if (showSpeed) parts.push(fmtSpeed());
+    info.textContent = parts.join('   ');
+  }
+
+  /** 按开关创建/隐藏叠加层；设置页打开时务必隐藏（由 renderStep1 归零后调用） */
+  function applyInfoOverlay(): void {
+    el.querySelector('#atv-info')?.remove();
+    if (!showClock && !showSpeed) {
+      if (infoTimer) {
+        clearInterval(infoTimer);
+        infoTimer = null;
+      }
+      return;
+    }
+    const d = document.createElement('div');
+    d.id = 'atv-info';
+    d.style.cssText =
+      'position:fixed;right:24px;top:20px;background:rgba(0,0,0,.55);color:#fff;padding:8px 18px;border-radius:14px;font-size:22px;z-index:8;';
+    el.appendChild(d);
+    if (!infoTimer) infoTimer = setInterval(updateInfo, 1000);
+    updateInfo();
+  }
 
   /** 当前显示完成后，按 dwellSec 安排下一张自动切换（暂停时不安排） */
   function scheduleNext(): void {
@@ -93,11 +146,20 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     }, dwellMs);
   }
 
-  /** 预取当前图的前后各一张，切换时几乎零等待（用户反馈「切换慢」的主修复） */
+  /**
+   * 预取下一批图片，切换时几乎零等待（用户反馈「切换慢」的主修复）。
+   * 顺序模式取前后各一张；随机模式顺序邻居对随机无意义，改为预取 2 张随机候选。
+   */
   function prefetchNeighbors(): void {
     const s = useAppStore.getState();
     const n = s.items.length;
     if (n === 0) return;
+    if (s.playlist?.order === 'random') {
+      const a = Math.floor(Math.random() * n);
+      void fetchItemUrl(s.items[a]);
+      void fetchItemUrl(s.items[(a + 1) % n]);
+      return;
+    }
     void fetchItemUrl(s.items[(s.index + 1) % n]);
     void fetchItemUrl(s.items[(s.index - 1 + n) % n]);
   }
@@ -135,6 +197,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       const cached = await app.cache.get(key);
       if (cached) return URL.createObjectURL(new Blob([cached], { type: sniffMime(cached) }));
       const buf = await davCtx.dav.get(item.path);
+      speedLog.push({ t: Date.now(), bytes: buf.byteLength });
       await app.cache.put(buf, { accountId: item.accountId, path: item.path });
       return URL.createObjectURL(new Blob([buf], { type: sniffMime(buf) }));
     })()
@@ -232,6 +295,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         transition: 'kenburns',
         dwellSec: saved?.dwellSec ?? 15,
       };
+      showClock = saved?.showClock ?? false;
+      showSpeed = saved?.showSpeed ?? false;
       useAppStore.getState().dispatch({ type: 'SCHEDULE', playlist, items: photos });
       if (photos.length === 0) {
         el.innerHTML = `<div id="atv-stage"><div id="atv-loading">目录「${escapeHtml(root)}」中没有图片文件，请在设置中更换路径</div></div>`;
@@ -247,6 +312,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           const idx = photos.findIndex((p) => p.path === lastPath);
           if (idx > 0) useAppStore.getState().dispatch({ type: 'JUMP', index: idx });
         }
+        applyInfoOverlay(); // 播放界面按设置显示时间/网速
         renderItem(currentItem());
       }
     } catch (err: unknown) {
@@ -264,9 +330,14 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     verifySsl: boolean;
     dwellSec?: number;
     order?: 'sequential' | 'random';
+    showClock?: boolean;
+    showSpeed?: boolean;
   }): Promise<void> {
     setupOpen = true;
     setupStep = 'step1';
+    showClock = false;
+    showSpeed = false;
+    applyInfoOverlay(); // 设置页隐藏时间/网速叠加层
     el.innerHTML = `
       <div id="atv-setup">
         <h1>连接 NAS</h1>
@@ -277,10 +348,13 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           <label>密码<input id="f-pass" type="password" value="${escapeHtml(prefill.password)}" /></label>
           <label>自动更换间隔（秒，3–3600）<input id="f-dwell" type="text" inputmode="numeric" value="${Math.max(3, prefill.dwellSec ?? 15)}" /></label>
           <label class="atv-check"><input id="f-random" type="checkbox" ${prefill.order === 'random' ? 'checked' : ''} /> 随机播放（不勾选则按文件夹顺序）</label>
+          <label class="atv-check"><input id="f-clock" type="checkbox" ${prefill.showClock ? 'checked' : ''} /> 播放界面显示当前时间</label>
+          <label class="atv-check"><input id="f-speed" type="checkbox" ${prefill.showSpeed ? 'checked' : ''} /> 播放界面显示网速</label>
           <label class="atv-check"><input id="f-verify" type="checkbox" ${prefill.verifySsl === false ? '' : 'checked'} /> 校验 TLS 证书（自签名 NAS 请取消勾选）</label>
           <div id="atv-msg" class="atv-msg"></div>
           <div class="atv-actions">
             <button id="f-next" type="button" class="atv-btn">测试连接并继续</button>
+            ${prefill.server ? '<button id="f-save" type="button" class="atv-btn">保存设置并播放</button>' : ''}
             ${prefill.server ? '<button id="f-clear" type="button" class="atv-btn atv-btn-ghost">清除已保存</button>' : ''}
           </div>
         </form>
@@ -290,11 +364,19 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     serverEl.focus();
     const msgEl = el.querySelector('#atv-msg') as HTMLElement;
 
-    (el.querySelector('#f-next') as HTMLButtonElement).addEventListener('click', async () => {
+    /** 读取第 1 步表单的公共字段（f-next 与 f-save 共用） */
+    function readForm(): {
+      server: string;
+      dwell: number;
+      order: 'sequential' | 'random';
+      clock: boolean;
+      speed: boolean;
+      base: DavEndpoint;
+    } | null {
       const server = serverEl.value.trim();
       if (!server) {
         msgEl.textContent = '请填写服务器地址';
-        return;
+        return null;
       }
       const dwellRaw = parseInt((el.querySelector('#f-dwell') as HTMLInputElement).value, 10);
       const dwell = Number.isFinite(dwellRaw) && dwellRaw >= 3 ? Math.min(3600, dwellRaw) : 15;
@@ -302,25 +384,52 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         .checked
         ? 'random'
         : 'sequential';
-      const endpoint: DavEndpoint = {
+      return {
         server,
-        rootPath: '/',
-        username: (el.querySelector('#f-user') as HTMLInputElement).value,
-        password: (el.querySelector('#f-pass') as HTMLInputElement).value,
-        https: server.startsWith('https'),
-        verifySsl: (el.querySelector('#f-verify') as HTMLInputElement).checked,
+        dwell,
+        order,
+        clock: (el.querySelector('#f-clock') as HTMLInputElement).checked,
+        speed: (el.querySelector('#f-speed') as HTMLInputElement).checked,
+        base: {
+          server,
+          rootPath: '/',
+          username: (el.querySelector('#f-user') as HTMLInputElement).value,
+          password: (el.querySelector('#f-pass') as HTMLInputElement).value,
+          https: server.startsWith('https'),
+          verifySsl: (el.querySelector('#f-verify') as HTMLInputElement).checked,
+        },
       };
+    }
+
+    (el.querySelector('#f-next') as HTMLButtonElement).addEventListener('click', async () => {
+      const f = readForm();
+      if (!f) return;
       msgEl.textContent = '正在连接…';
       try {
         // 先保存并真正建立连接，验证服务器/账号可用，随后进入目录浏览
-        await app.setEndpoint(endpoint, dwell, order);
+        await app.setEndpoint(f.base, f.dwell, f.order, f.clock, f.speed);
         const ctx = await app.boot();
         await ctx.dav.list('/', { depth: 1 }); // 验证根目录可读
-        renderFolderBrowser(endpoint, '/', dwell, order);
+        renderFolderBrowser(f.base, '/', f.dwell, f.order, f.clock, f.speed);
       } catch (err: unknown) {
         const m = err instanceof Error ? err.message : String(err);
         msgEl.innerHTML =
           `连接失败：${escapeHtml(m)}<br/><span class="atv-hint">自签名证书请取消勾选「校验 TLS 证书」；纯 http 地址请确认网络可达。</span>`;
+      }
+    });
+
+    // 只改间隔/随机/显示开关时无需重新连接选目录：沿用已保存目录直接保存并回播放
+    (el.querySelector('#f-save') as HTMLButtonElement | null)?.addEventListener('click', async () => {
+      const f = readForm();
+      if (!f) return;
+      const ep: DavEndpoint = { ...f.base, rootPath: prefill.rootPath || '/' };
+      msgEl.textContent = '正在保存…';
+      try {
+        await app.setEndpoint(ep, f.dwell, f.order, f.clock, f.speed);
+        void connectAndPlay(ep.rootPath);
+      } catch (err: unknown) {
+        const m = err instanceof Error ? err.message : String(err);
+        msgEl.textContent = `保存失败：${m}`;
       }
     });
 
@@ -341,10 +450,12 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     currentPath: string,
     dwellSec: number,
     order: 'sequential' | 'random',
+    showClockOpt?: boolean,
+    showSpeedOpt?: boolean,
   ): void {
     setupOpen = true;
     setupStep = 'folders';
-    setupCtx = { endpoint, dwellSec, order };
+    setupCtx = { endpoint, dwellSec, order, showClock: showClockOpt, showSpeed: showSpeedOpt };
     const segs = currentPath.split('/').filter(Boolean);
     const crumbs = ['/'].concat(segs.map((_, i) => '/' + segs.slice(0, i + 1).join('/')));
     const crumbHtml = crumbs
@@ -372,7 +483,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
 
     el.querySelectorAll<HTMLButtonElement>('.atv-crumb').forEach((b) =>
       b.addEventListener('click', () =>
-        renderFolderBrowser(endpoint, b.dataset.path || '/', dwellSec, order),
+        renderFolderBrowser(endpoint, b.dataset.path || '/', dwellSec, order, showClockOpt, showSpeedOpt),
       ),
     );
     (el.querySelector('#f-back') as HTMLButtonElement).addEventListener('click', () =>
@@ -384,11 +495,13 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         verifySsl: endpoint.verifySsl,
         dwellSec,
         order,
+        showClock: showClockOpt,
+        showSpeed: showSpeedOpt,
       }),
     );
     (el.querySelector('#f-pick') as HTMLButtonElement).addEventListener('click', async () => {
       const ep: DavEndpoint = { ...endpoint, rootPath: currentPath };
-      await app.setEndpoint(ep, dwellSec, order);
+      await app.setEndpoint(ep, dwellSec, order, showClockOpt, showSpeedOpt);
       void connectAndPlay(currentPath);
     });
 
@@ -413,7 +526,14 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
             .join('');
           foldersEl.querySelectorAll<HTMLButtonElement>('.atv-folder').forEach((b) =>
             b.addEventListener('click', () =>
-              renderFolderBrowser(endpoint, joinPath(currentPath, b.dataset.folder ?? ''), dwellSec, order),
+              renderFolderBrowser(
+                endpoint,
+                joinPath(currentPath, b.dataset.folder ?? ''),
+                dwellSec,
+                order,
+                showClockOpt,
+                showSpeedOpt,
+              ),
             ),
           );
           if (fileCount > 0) {
@@ -471,9 +591,9 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       }
     },
     back() {
-      // 返回键：文件夹浏览器 → 第 1 步；第 1 步与播放态不动作（永不误退应用）
+      // 返回键：文件夹浏览器 → 第 1 步；第 1 步（有已保存配置）→ 退出设置回播放；永不误退应用
       if (setupStep === 'folders' && setupCtx) {
-        const { endpoint, dwellSec, order } = setupCtx;
+        const { endpoint, dwellSec, order, showClock, showSpeed } = setupCtx;
         void renderStep1({
           server: endpoint.server,
           rootPath: endpoint.rootPath,
@@ -482,7 +602,16 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           verifySsl: endpoint.verifySsl,
           dwellSec,
           order,
+          showClock,
+          showSpeed,
         });
+        return;
+      }
+      if (setupStep === 'step1') {
+        void (async () => {
+          const sv = await app.vault.load();
+          if (sv?.server) void connectAndPlay(sv.rootPath); // 已有配置：返回播放
+        })();
       }
     },
   };

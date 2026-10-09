@@ -30,11 +30,7 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
-        animation: atv-fade 1.2s ease;
-      }
-      @keyframes atv-fade {
-        from { opacity: 0; }
-        to { opacity: 1; }
+        /* 不加淡入动画：旧图保持到新图就绪后瞬时替换，避免切换黑屏 */
       }
       #atv-loading {
         opacity: 0.75;

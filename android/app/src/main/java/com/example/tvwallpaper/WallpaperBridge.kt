@@ -60,6 +60,8 @@ class WallpaperBridge(private val activity: Activity) {
             putString("certFingerprint", o.optString("certFingerprint", ""))
             putInt("dwellSec", o.optInt("dwellSec", 15))
             putString("order", o.optString("order", "sequential"))
+            putBoolean("showClock", o.optBoolean("showClock", false))
+            putBoolean("showSpeed", o.optBoolean("showSpeed", false))
             apply()
         }
     }
@@ -78,6 +80,8 @@ class WallpaperBridge(private val activity: Activity) {
             put("certFingerprint", creds.getString("certFingerprint", ""))
             put("dwellSec", creds.getInt("dwellSec", 15))
             put("order", creds.getString("order", "sequential"))
+            put("showClock", creds.getBoolean("showClock", false))
+            put("showSpeed", creds.getBoolean("showSpeed", false))
         }.toString()
     }
 

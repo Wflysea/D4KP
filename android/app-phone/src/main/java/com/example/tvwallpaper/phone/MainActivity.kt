@@ -28,6 +28,9 @@ class MainActivity : Activity() {
             settings.mediaPlaybackRequiresUserGesture = false
             settings.allowFileAccess = true
             settings.cacheMode = WebSettings.LOAD_DEFAULT
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+            settings.textZoom = 100
             webViewClient = WebViewClient()
             addJavascriptInterface(WallpaperBridge(this@MainActivity), "AndroidWallpaper")
             loadUrl("file:///android_asset/index.html")
