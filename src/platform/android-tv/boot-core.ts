@@ -211,6 +211,12 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     return p;
   }
 
+  /**
+   * 双缓冲渲染：加载期间保留旧图，新图预加载到「解码完成（onload）」后才替换 DOM。
+   * 这样旧图在解码期间一直保留，新图一插入就已就绪——彻底消除切换黑屏；
+   * 快速连续切换时以 renderToken 丢弃过期渲染，避免竞态。
+   */
+  let renderToken = 0;
   function renderItem(item: WallpaperItem | undefined): void {
     const stage = el.querySelector('#atv-stage') as HTMLElement | null;
     if (!stage) return;
@@ -218,8 +224,9 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       stage.innerHTML = '<div id="atv-loading">没有可显示的图片</div>';
       return;
     }
-    // 双缓冲：加载期间保留旧图（消除黑屏），仅在角落显示小提示；新图就绪后原子替换
+    // 加载期间保留旧图，仅在角落显示小提示
     showLoadingBadge(true);
+    const myToken = ++renderToken;
     void fetchItemUrl(item).then((url) => {
       const stageNow = el.querySelector('#atv-stage') as HTMLElement | null;
       if (!stageNow) return;
@@ -232,17 +239,33 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         }
         return;
       }
-      if (currentUrl) URL.revokeObjectURL(currentUrl);
-      currentUrl = url;
-      stageNow.innerHTML = `<img class="atv-img" src="${url}" alt="" />`;
-      if (useAppStore.getState().paused) showPausedBadge(true);
-      try {
-        localStorage.setItem('atv.lastPath', item.path); // 记住进度：重启后从这张继续
-      } catch {
-        /* 存储不可用时忽略 */
-      }
-      scheduleNext();
-      prefetchNeighbors(); // 后台预取前后两张，下次切换即点即开
+      // 预加载到解码完成再换入 DOM，避免 blob/解码那几帧露出黑色背景
+      const img = new Image();
+      img.onload = () => {
+        if (myToken !== renderToken) {
+          URL.revokeObjectURL(url); // 已切到别的图，丢弃本次结果
+          return;
+        }
+        if (currentUrl) URL.revokeObjectURL(currentUrl);
+        currentUrl = url;
+        stageNow.innerHTML = `<img class="atv-img" src="${url}" alt="" />`;
+        if (useAppStore.getState().paused) showPausedBadge(true);
+        try {
+          localStorage.setItem('atv.lastPath', item.path); // 记住进度：重启后从这张继续
+        } catch {
+          /* 存储不可用时忽略 */
+        }
+        scheduleNext();
+        prefetchNeighbors(); // 后台预取邻居，下次切换即点即开
+      };
+      img.onerror = () => {
+        if (myToken !== renderToken) return;
+        if (!stageNow.querySelector('.atv-img')) {
+          stageNow.innerHTML =
+            '<div id="atv-loading">图片加载失败（可能已被移动或删除），请按左右键切换</div>';
+        }
+      };
+      img.src = url;
     });
   }
 
