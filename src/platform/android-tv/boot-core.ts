@@ -72,6 +72,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     order: 'sequential' | 'random';
     showClock?: boolean;
     showSpeed?: boolean;
+    autoCleanCache?: boolean;
+    cacheQuotaMB?: number;
   } | null = null;
   let currentUrl: string | null = null;
   /** 连接成功后的核心层上下文（懒加载下载图片时使用） */
@@ -86,6 +88,9 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
   // —— 播放界面信息叠加层（时间 + 网速，可在设置中开关） ——
   let showClock = false;
   let showSpeed = false;
+  // —— 缓存自动清理 ——
+  let autoCleanCache = true;
+  let cacheQuotaMB = 100;
   let infoTimer: ReturnType<typeof setInterval> | null = null;
   /** 最近下载记录，用于计算最近 5 秒的平均网速 */
   const speedLog: { t: number; bytes: number }[] = [];
@@ -99,6 +104,17 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     const bps = bytes / secs;
     const v = bps >= 1048576 ? (bps / 1048576).toFixed(2) + ' MB/s' : (bps / 1024).toFixed(0) + ' KB/s';
     return '⬇ ' + v;
+  }
+
+  /** 人类可读的字节数 */
+  function formatBytes(n: number): string {
+    if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+    if (n >= 1024) return (n / 1024).toFixed(0) + ' KB';
+    return n + ' B';
+  }
+  /** 当前配置的缓存上限（字节） */
+  function quotaBytes(): number {
+    return Math.max(10, cacheQuotaMB) * 1024 * 1024;
   }
 
   function updateInfo(): void {
@@ -203,6 +219,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       const buf = await davCtx.dav.get(item.path);
       speedLog.push({ t: Date.now(), bytes: buf.byteLength });
       await app.cache.put(buf, { accountId: item.accountId, path: item.path });
+      // 下载落盘后，若开启自动清理且已超上限，立即淘汰最旧图片，将占用控制在配额内
+      if (autoCleanCache) void app.cache.evictTo(quotaBytes());
       return URL.createObjectURL(new Blob([buf], { type: sniffMime(buf) }));
     })()
       .catch(() => null)
@@ -324,6 +342,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       };
       showClock = saved?.showClock ?? false;
       showSpeed = saved?.showSpeed ?? false;
+      autoCleanCache = saved?.autoCleanCache ?? true;
+      cacheQuotaMB = saved?.cacheQuotaMB ?? 100;
       useAppStore.getState().dispatch({ type: 'SCHEDULE', playlist, items: photos });
       if (photos.length === 0) {
         el.innerHTML = `<div id="atv-stage"><div id="atv-loading">目录「${escapeHtml(root)}」中没有图片文件，请在设置中更换路径</div></div>`;
@@ -360,6 +380,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     order?: 'sequential' | 'random';
     showClock?: boolean;
     showSpeed?: boolean;
+    autoCleanCache?: boolean;
+    cacheQuotaMB?: number;
   }): void {
     setupOpen = true;
     setupStep = 'conn';
@@ -412,6 +434,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           prefill.order ?? 'sequential',
           prefill.showClock ?? false,
           prefill.showSpeed ?? false,
+          prefill.autoCleanCache ?? true,
+          prefill.cacheQuotaMB ?? 100,
         );
         const ctx = await app.boot();
         await ctx.dav.list('/', { depth: 1 }); // 验证根目录可读
@@ -422,6 +446,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           prefill.order ?? 'sequential',
           prefill.showClock ?? false,
           prefill.showSpeed ?? false,
+          prefill.autoCleanCache ?? true,
+          prefill.cacheQuotaMB ?? 100,
         );
       } catch (err: unknown) {
         const m = err instanceof Error ? err.message : String(err);
@@ -437,6 +463,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         order: prefill.order ?? 'sequential',
         showClock: prefill.showClock ?? false,
         showSpeed: prefill.showSpeed ?? false,
+        autoCleanCache: prefill.autoCleanCache ?? true,
+        cacheQuotaMB: prefill.cacheQuotaMB ?? 100,
       });
     });
 
@@ -453,6 +481,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     order: 'sequential' | 'random';
     showClock: boolean;
     showSpeed: boolean;
+    autoCleanCache?: boolean;
+    cacheQuotaMB?: number;
   }): void {
     setupOpen = true;
     setupStep = 'play';
@@ -468,9 +498,13 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           <label class="atv-check"><input id="f-random" type="checkbox" ${prefill.order === 'random' ? 'checked' : ''} /> 随机播放（不勾选则按文件夹顺序）</label>
           <label class="atv-check"><input id="f-clock" type="checkbox" ${prefill.showClock ? 'checked' : ''} /> 播放界面显示当前时间</label>
           <label class="atv-check"><input id="f-speed" type="checkbox" ${prefill.showSpeed ? 'checked' : ''} /> 播放界面显示网速</label>
+          <label class="atv-check"><input id="f-autoclean" type="checkbox" ${(prefill.autoCleanCache ?? true) ? 'checked' : ''} /> 自动清理缓存（超上限时删除最旧图片）</label>
+          <label>缓存上限（MB，10–2048）<input id="f-quota" type="text" inputmode="numeric" value="${Math.max(10, prefill.cacheQuotaMB ?? 100)}" /></label>
+          <div id="atv-cache-info" class="atv-hint">当前缓存占用：${escapeHtml(formatBytes(app.cache.size()))}（上限 ${Math.max(10, prefill.cacheQuotaMB ?? 100)} MB）</div>
           <div id="atv-msg" class="atv-msg"></div>
           <div class="atv-actions">
             <button id="f-save" type="button" class="atv-btn">保存设置并播放</button>
+            <button id="f-clearcache" type="button" class="atv-btn atv-btn-ghost">立即清理</button>
             <button id="f-conn" type="button" class="atv-btn atv-btn-ghost">连接设置</button>
           </div>
           <div class="atv-version">软件版本 v${escapeHtml(APP_VERSION)}</div>
@@ -495,6 +529,9 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         : 'sequential';
       const clock = (el.querySelector('#f-clock') as HTMLInputElement).checked;
       const speed = (el.querySelector('#f-speed') as HTMLInputElement).checked;
+      const autoClean = (el.querySelector('#f-autoclean') as HTMLInputElement).checked;
+      const quotaRaw = parseInt((el.querySelector('#f-quota') as HTMLInputElement).value, 10);
+      const quota = Number.isFinite(quotaRaw) && quotaRaw >= 10 ? Math.min(2048, quotaRaw) : 100;
       msgEl.textContent = '正在保存…';
       try {
         await app.setEndpoint(
@@ -511,12 +548,26 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           order,
           clock,
           speed,
+          autoClean,
+          quota,
         );
         void connectAndPlay(saved.rootPath);
       } catch (err: unknown) {
         const m = err instanceof Error ? err.message : String(err);
         msgEl.textContent = `保存失败：${m}`;
       }
+    });
+
+    // 立即清理：按当前上限淘汰最旧图片（即便自动清理已关闭，也可手动释放空间）
+    (el.querySelector('#f-clearcache') as HTMLButtonElement | null)?.addEventListener('click', async () => {
+      const quotaRaw = parseInt((el.querySelector('#f-quota') as HTMLInputElement).value, 10);
+      const quota = Number.isFinite(quotaRaw) && quotaRaw >= 10 ? Math.min(2048, quotaRaw) : 100;
+      await app.cache.evictTo(quota * 1024 * 1024);
+      const infoEl = el.querySelector('#atv-cache-info') as HTMLElement | null;
+      if (infoEl) {
+        infoEl.textContent = `已清理。当前缓存占用：${formatBytes(app.cache.size())}（上限 ${quota} MB）`;
+      }
+      msgEl.textContent = '缓存已清理';
     });
 
     (el.querySelector('#f-conn') as HTMLButtonElement).addEventListener('click', async () => {
@@ -531,6 +582,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         order: prefill.order,
         showClock: prefill.showClock,
         showSpeed: prefill.showSpeed,
+        autoCleanCache: prefill.autoCleanCache ?? true,
+        cacheQuotaMB: prefill.cacheQuotaMB ?? 100,
       });
     });
   }
@@ -546,10 +599,20 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     order: 'sequential' | 'random',
     showClockOpt?: boolean,
     showSpeedOpt?: boolean,
+    autoCleanOpt?: boolean,
+    cacheQuotaOpt?: number,
   ): void {
     setupOpen = true;
     setupStep = 'folders';
-    setupCtx = { endpoint, dwellSec, order, showClock: showClockOpt, showSpeed: showSpeedOpt };
+    setupCtx = {
+      endpoint,
+      dwellSec,
+      order,
+      showClock: showClockOpt,
+      showSpeed: showSpeedOpt,
+      autoCleanCache: autoCleanOpt,
+      cacheQuotaMB: cacheQuotaOpt,
+    };
     const segs = currentPath.split('/').filter(Boolean);
     const crumbs = ['/'].concat(segs.map((_, i) => '/' + segs.slice(0, i + 1).join('/')));
     const crumbHtml = crumbs
@@ -577,7 +640,16 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
 
     el.querySelectorAll<HTMLButtonElement>('.atv-crumb').forEach((b) =>
       b.addEventListener('click', () =>
-        renderFolderBrowser(endpoint, b.dataset.path || '/', dwellSec, order, showClockOpt, showSpeedOpt),
+        renderFolderBrowser(
+          endpoint,
+          b.dataset.path || '/',
+          dwellSec,
+          order,
+          showClockOpt,
+          showSpeedOpt,
+          autoCleanOpt,
+          cacheQuotaOpt,
+        ),
       ),
     );
     (el.querySelector('#f-back') as HTMLButtonElement).addEventListener('click', () =>
@@ -591,11 +663,13 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         order,
         showClock: showClockOpt,
         showSpeed: showSpeedOpt,
+        autoCleanCache: autoCleanOpt ?? true,
+        cacheQuotaMB: cacheQuotaOpt ?? 100,
       }),
     );
     (el.querySelector('#f-pick') as HTMLButtonElement).addEventListener('click', async () => {
       const ep: DavEndpoint = { ...endpoint, rootPath: currentPath };
-      await app.setEndpoint(ep, dwellSec, order, showClockOpt, showSpeedOpt);
+      await app.setEndpoint(ep, dwellSec, order, showClockOpt, showSpeedOpt, autoCleanOpt ?? true, cacheQuotaOpt ?? 100);
       // 选定目录后进入「播放设置」页：可调整偏好后一键保存回播放
       renderPlayPage({
         rootPath: currentPath,
@@ -603,6 +677,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         order,
         showClock: showClockOpt ?? false,
         showSpeed: showSpeedOpt ?? false,
+        autoCleanCache: autoCleanOpt ?? true,
+        cacheQuotaMB: cacheQuotaOpt ?? 100,
       });
     });
 
@@ -634,6 +710,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
                 order,
                 showClockOpt,
                 showSpeedOpt,
+                autoCleanOpt,
+                cacheQuotaOpt,
               ),
             ),
           );
@@ -662,6 +740,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         order: saved.order ?? 'sequential',
         showClock: saved.showClock ?? false,
         showSpeed: saved.showSpeed ?? false,
+        autoCleanCache: saved.autoCleanCache ?? true,
+        cacheQuotaMB: saved.cacheQuotaMB ?? 100,
       });
     } else {
       renderConnPage({ server: '', username: '', password: '', verifySsl: true });
@@ -709,7 +789,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         })();
       };
       if (setupStep === 'folders' && setupCtx) {
-        const { endpoint, dwellSec, order, showClock, showSpeed } = setupCtx;
+        const { endpoint, dwellSec, order, showClock, showSpeed, autoCleanCache, cacheQuotaMB } = setupCtx;
         renderConnPage({
           server: endpoint.server,
           username: endpoint.username,
@@ -720,6 +800,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           order,
           showClock,
           showSpeed,
+          autoCleanCache: autoCleanCache ?? true,
+          cacheQuotaMB: cacheQuotaMB ?? 100,
         });
         return;
       }

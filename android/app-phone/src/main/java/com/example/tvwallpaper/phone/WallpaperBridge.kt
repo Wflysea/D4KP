@@ -58,6 +58,8 @@ class WallpaperBridge(private val activity: Activity) {
             putString("order", o.optString("order", "sequential"))
             putBoolean("showClock", o.optBoolean("showClock", false))
             putBoolean("showSpeed", o.optBoolean("showSpeed", false))
+            putBoolean("autoCleanCache", o.optBoolean("autoCleanCache", true))
+            putInt("cacheQuotaMB", o.optInt("cacheQuotaMB", 100))
             apply()
         }
     }
@@ -78,6 +80,8 @@ class WallpaperBridge(private val activity: Activity) {
             put("order", creds.getString("order", "sequential"))
             put("showClock", creds.getBoolean("showClock", false))
             put("showSpeed", creds.getBoolean("showSpeed", false))
+            put("autoCleanCache", creds.getBoolean("autoCleanCache", true))
+            put("cacheQuotaMB", creds.getInt("cacheQuotaMB", 100))
         }.toString()
     }
 

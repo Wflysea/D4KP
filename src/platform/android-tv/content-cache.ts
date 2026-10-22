@@ -52,7 +52,8 @@ export class AndroidTvContentCache implements IContentCache {
       }
       return;
     }
-    this.bridge.evictBlobs(quotaBytes);
+    // 仅在已超配额时淘汰（按最后修改时间从最旧开始删），未超配额直接跳过，避免无用磁盘扫描
+    if (this.bridge.blobSize() > quotaBytes) this.bridge.evictBlobs(quotaBytes);
   }
 
   /** 根据壁纸条目取出本地缓存内容，生成可在 <img> 中显示的 Blob URL（按 magic byte 嗅探 mime） */

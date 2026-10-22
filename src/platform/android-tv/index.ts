@@ -24,6 +24,8 @@ export interface AndroidTvApp {
     order?: 'sequential' | 'random',
     showClock?: boolean,
     showSpeed?: boolean,
+    autoCleanCache?: boolean,
+    cacheQuotaMB?: number,
   ): Promise<void>;
   /** 读取已保存凭证并装配核心层上下文；无凭证则用默认端点（首启向导） */
   boot(): Promise<AppContext>;
@@ -71,8 +73,19 @@ export function createAndroidTvApp(): AndroidTvApp {
       order?: 'sequential' | 'random',
       showClock?: boolean,
       showSpeed?: boolean,
+      autoCleanCache?: boolean,
+      cacheQuotaMB?: number,
     ): Promise<void> {
-      const cred: StoredCredential = { accountId: 'primary', ...endpoint, dwellSec, order, showClock, showSpeed };
+      const cred: StoredCredential = {
+        accountId: 'primary',
+        ...endpoint,
+        dwellSec,
+        order,
+        showClock,
+        showSpeed,
+        autoCleanCache,
+        cacheQuotaMB,
+      };
       await vault.save(cred);
     },
     async boot(): Promise<AppContext> {

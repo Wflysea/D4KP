@@ -54,6 +54,10 @@ export interface StoredCredential {
   showClock?: boolean;
   /** 播放界面显示下载网速 */
   showSpeed?: boolean;
+  /** 自动清理缓存（超过上限时淘汰最旧图片），缺省开启 */
+  autoCleanCache?: boolean;
+  /** 缓存上限（MB），缺省 100；实际占用被控制在约此值以内 */
+  cacheQuotaMB?: number;
 }
 
 /** 凭据保险箱：在原生安全存储（Android Keystore / iOS Keychain）中持久化凭证 */
