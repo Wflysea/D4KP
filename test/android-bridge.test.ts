@@ -45,6 +45,10 @@ function makeFakeBridge() {
     evictBlobs() {
       /* noop */
     },
+    setWallpaperFromBlob(key) {
+      calls.push({ setWallpaperFromBlob: key });
+      return JSON.stringify({ ok: true });
+    },
     log() {
       /* noop */
     },

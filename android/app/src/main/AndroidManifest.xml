@@ -5,6 +5,7 @@
     <!-- 直连 NAS 需要网络；壁纸常驻需要保持屏幕常亮 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
 
     <!-- 声明为 Android TV 应用（非强制，避免被纯触屏商店过滤） -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
