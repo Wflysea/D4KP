@@ -56,7 +56,7 @@ export interface StoredCredential {
   showSpeed?: boolean;
   /** 自动清理缓存（超过上限时淘汰最旧图片），缺省开启 */
   autoCleanCache?: boolean;
-  /** 缓存上限（MB），缺省 100；实际占用被控制在约此值以内 */
+  /** 缓存上限（MB），缺省 50；实际占用被控制在约此值以内（缓存图片已压缩到屏幕分辨率） */
   cacheQuotaMB?: number;
   /** 图片显示方式：cover 填满屏幕（裁切边缘）/ contain 完整显示（留黑边）；缺省 cover */
   fitMode?: 'cover' | 'contain';

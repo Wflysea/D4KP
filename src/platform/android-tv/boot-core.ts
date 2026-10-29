@@ -60,10 +60,17 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
   if (!elRaw) return idle;
   const el: HTMLElement = elRaw;
 
+  // 设备屏幕尺寸：把缓存图片压缩到屏幕分辨率，避免 NAS 原图（动辄 10MB+）占满电视存储
+  const devInfo = app.host.getDeviceInfo();
+  const screenW = Math.max(320, devInfo.screen?.width ?? 1920);
+  const screenH = Math.max(320, devInfo.screen?.height ?? 1080);
+
   // 壁纸常驻：保持屏幕常亮
   app.host.keepAwake(true);
 
   let setupOpen = false;
+  /** 是否已保存过 NAS 连接：用于「返回键」在首启未连接时直接退出应用 */
+  let knownHasServer = false;
   /**
    * 设置向导当前步骤：back 键据此做页面内导航（文件夹浏览器 → 连接页；播放设置/连接页 → 有配置则回播放），
    * 不退出应用。连接 NAS 与播放设置拆分为两个独立界面。
@@ -97,7 +104,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
   let showSpeed = false;
   // —— 缓存自动清理 ——
   let autoCleanCache = true;
-  let cacheQuotaMB = 100;
+  let cacheQuotaMB = 50;
   // —— 图片显示方式：cover 填满裁切 / contain 完整显示留黑边 ——
   let fitMode: 'cover' | 'contain' = 'cover';
   let infoTimer: ReturnType<typeof setInterval> | null = null;
@@ -124,6 +131,43 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
   /** 当前配置的缓存上限（字节） */
   function quotaBytes(): number {
     return Math.max(10, cacheQuotaMB) * 1024 * 1024;
+  }
+
+  /**
+   * 把下载到的原图压缩到设备屏幕分辨率再落盘缓存：NAS 原图常 10MB+，而电视壁纸只需屏幕像素，
+   * 压缩为 JPEG(q82) 后单张通常 <2MB，相同缓存上限可容纳更多图片，显著减少存储占用（显示效果一致）。
+   * 任何一步失败都回退到原始字节，保证功能不退化。
+   */
+  async function downscaleForCache(buf: ArrayBuffer, maxW: number, maxH: number): Promise<ArrayBuffer> {
+    try {
+      if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') return buf;
+      const blob = new Blob([buf], { type: sniffMime(buf) });
+      const bmp = await createImageBitmap(blob);
+      const scale = Math.min(1, maxW / bmp.width, maxH / bmp.height);
+      if (scale >= 1) {
+        bmp.close();
+        return buf; // 已不大于屏幕，无需压缩
+      }
+      const w = Math.max(1, Math.round(bmp.width * scale));
+      const h = Math.max(1, Math.round(bmp.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const c2d = canvas.getContext('2d');
+      if (!c2d) {
+        bmp.close();
+        return buf;
+      }
+      c2d.drawImage(bmp, 0, 0, w, h);
+      bmp.close();
+      const out = await new Promise<ArrayBuffer | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b ? b.arrayBuffer() : null), 'image/jpeg', 0.82);
+      });
+      if (out && out.byteLength > 0) return out;
+      return buf;
+    } catch {
+      return buf;
+    }
   }
 
   function updateInfo(): void {
@@ -226,10 +270,12 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       if (cached) return URL.createObjectURL(new Blob([cached], { type: sniffMime(cached) }));
       const buf = await davCtx.dav.get(item.path);
       speedLog.push({ t: Date.now(), bytes: buf.byteLength });
-      await app.cache.put(buf, { accountId: item.accountId, path: item.path });
+      // 压缩到屏幕分辨率再缓存，降低存储占用（失败回退原图）
+      const storeBuf = await downscaleForCache(buf, screenW, screenH);
+      await app.cache.put(storeBuf, { accountId: item.accountId, path: item.path });
       // 下载落盘后，若开启自动清理且已超上限，立即淘汰最旧图片，将占用控制在配额内
       if (autoCleanCache) void app.cache.evictTo(quotaBytes());
-      return URL.createObjectURL(new Blob([buf], { type: sniffMime(buf) }));
+      return URL.createObjectURL(new Blob([storeBuf], { type: sniffMime(storeBuf) }));
     })()
       .catch(() => null)
       .finally(() => inflight.delete(item.path));
@@ -356,8 +402,10 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       showClock = saved?.showClock ?? false;
       showSpeed = saved?.showSpeed ?? false;
       autoCleanCache = saved?.autoCleanCache ?? true;
-      cacheQuotaMB = saved?.cacheQuotaMB ?? 100;
+      cacheQuotaMB = saved?.cacheQuotaMB ?? 50;
       fitMode = saved?.fitMode === 'contain' ? 'contain' : 'cover';
+      // 启动即按当前上限回收缓存：默认上限下调到 50MB 后，旧版已写满的缓存会在本次启动被清理
+      if (autoCleanCache) void app.cache.evictTo(quotaBytes());
       useAppStore.getState().dispatch({ type: 'SCHEDULE', playlist, items: photos });
       if (photos.length === 0) {
         el.innerHTML = `<div id="atv-stage"><div id="atv-loading">目录「${escapeHtml(root)}」中没有图片文件，请在设置中更换路径</div></div>`;
@@ -450,7 +498,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           prefill.showClock ?? false,
           prefill.showSpeed ?? false,
           prefill.autoCleanCache ?? true,
-          prefill.cacheQuotaMB ?? 100,
+          prefill.cacheQuotaMB ?? 50,
           prefill.fitMode ?? 'cover',
         );
         const ctx = await app.boot();
@@ -463,7 +511,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           prefill.showClock ?? false,
           prefill.showSpeed ?? false,
           prefill.autoCleanCache ?? true,
-          prefill.cacheQuotaMB ?? 100,
+          prefill.cacheQuotaMB ?? 50,
           prefill.fitMode ?? 'cover',
         );
       } catch (err: unknown) {
@@ -481,7 +529,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         showClock: prefill.showClock ?? false,
         showSpeed: prefill.showSpeed ?? false,
         autoCleanCache: prefill.autoCleanCache ?? true,
-        cacheQuotaMB: prefill.cacheQuotaMB ?? 100,
+        cacheQuotaMB: prefill.cacheQuotaMB ?? 50,
         fitMode: prefill.fitMode ?? 'cover',
       });
     });
@@ -518,12 +566,12 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           <label class="atv-check"><input id="f-clock" type="checkbox" ${prefill.showClock ? 'checked' : ''} /> 播放界面显示当前时间</label>
           <label class="atv-check"><input id="f-speed" type="checkbox" ${prefill.showSpeed ? 'checked' : ''} /> 播放界面显示网速</label>
           <label class="atv-check"><input id="f-autoclean" type="checkbox" ${(prefill.autoCleanCache ?? true) ? 'checked' : ''} /> 自动清理缓存（超上限时删除最旧图片）</label>
-          <label>缓存上限（MB，10–2048）<input id="f-quota" type="text" inputmode="numeric" value="${Math.max(10, prefill.cacheQuotaMB ?? 100)}" /></label>
+          <label>缓存上限（MB，10–2048）<input id="f-quota" type="text" inputmode="numeric" value="${Math.max(10, prefill.cacheQuotaMB ?? 50)}" /></label>
           <label>图片显示方式<select id="f-fit" class="atv-select">
             <option value="cover" ${(prefill.fitMode ?? 'cover') === 'cover' ? 'selected' : ''}>填满屏幕（可能裁切边缘）</option>
             <option value="contain" ${prefill.fitMode === 'contain' ? 'selected' : ''}>完整显示（可能留黑边）</option>
           </select></label>
-          <div id="atv-cache-info" class="atv-hint">当前缓存占用：${escapeHtml(formatBytes(app.cache.size()))}（上限 ${Math.max(10, prefill.cacheQuotaMB ?? 100)} MB）</div>
+          <div id="atv-cache-info" class="atv-hint">当前缓存占用：${escapeHtml(formatBytes(app.cache.size()))}（上限 ${Math.max(10, prefill.cacheQuotaMB ?? 50)} MB）</div>
           <div id="atv-msg" class="atv-msg"></div>
           <div class="atv-actions">
             <button id="f-save" type="button" class="atv-btn">保存设置并播放</button>
@@ -638,7 +686,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         showClock: prefill.showClock,
         showSpeed: prefill.showSpeed,
         autoCleanCache: prefill.autoCleanCache ?? true,
-        cacheQuotaMB: prefill.cacheQuotaMB ?? 100,
+        cacheQuotaMB: prefill.cacheQuotaMB ?? 50,
         fitMode: prefill.fitMode ?? 'cover',
       });
     });
@@ -723,13 +771,13 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         showClock: showClockOpt,
         showSpeed: showSpeedOpt,
         autoCleanCache: autoCleanOpt ?? true,
-        cacheQuotaMB: cacheQuotaOpt ?? 100,
+        cacheQuotaMB: cacheQuotaOpt ?? 50,
         fitMode: fitModeOpt ?? 'cover',
       }),
     );
     (el.querySelector('#f-pick') as HTMLButtonElement).addEventListener('click', async () => {
       const ep: DavEndpoint = { ...endpoint, rootPath: currentPath };
-      await app.setEndpoint(ep, dwellSec, order, showClockOpt, showSpeedOpt, autoCleanOpt ?? true, cacheQuotaOpt ?? 100, fitModeOpt ?? 'cover');
+      await app.setEndpoint(ep, dwellSec, order, showClockOpt, showSpeedOpt, autoCleanOpt ?? true, cacheQuotaOpt ?? 50, fitModeOpt ?? 'cover');
       // 选定目录后进入「播放设置」页：可调整偏好后一键保存回播放
       renderPlayPage({
         rootPath: currentPath,
@@ -738,7 +786,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         showClock: showClockOpt ?? false,
         showSpeed: showSpeedOpt ?? false,
         autoCleanCache: autoCleanOpt ?? true,
-        cacheQuotaMB: cacheQuotaOpt ?? 100,
+        cacheQuotaMB: cacheQuotaOpt ?? 50,
         fitMode: fitModeOpt ?? 'cover',
       });
     });
@@ -796,6 +844,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
   async function openSetup(): Promise<void> {
     const saved = await app.vault.load();
     if (saved?.server) {
+      knownHasServer = true;
       renderPlayPage({
         rootPath: saved.rootPath ?? '/',
         dwellSec: saved.dwellSec ?? 15,
@@ -803,7 +852,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         showClock: saved.showClock ?? false,
         showSpeed: saved.showSpeed ?? false,
         autoCleanCache: saved.autoCleanCache ?? true,
-        cacheQuotaMB: saved.cacheQuotaMB ?? 100,
+        cacheQuotaMB: saved.cacheQuotaMB ?? 50,
         fitMode: saved.fitMode === 'contain' ? 'contain' : 'cover',
       });
     } else {
@@ -843,8 +892,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       }
     },
     back(): boolean {
-      // 返回键：文件夹浏览器 → 连接页；播放设置/连接页 → 已有配置则退出设置回播放；
-      // 返回 true 表示已消费（在设置页内导航），false 表示在播放界面（原生可退出应用）
+      // 返回键：文件夹浏览器 → 连接页；连接/播放设置页 → 有配置则回播放；
+      // 播放界面（或首启尚未连接）返回 false，由原生层退出应用。
       const backToPlayback = (): void => {
         void (async () => {
           const sv = await app.vault.load();
@@ -865,21 +914,27 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           showClock,
           showSpeed,
           autoCleanCache: autoCleanCache ?? true,
-          cacheQuotaMB: cacheQuotaMB ?? 100,
+          cacheQuotaMB: cacheQuotaMB ?? 50,
           fitMode: fitMode ?? 'cover',
         });
         return true;
       }
-      if (setupStep === 'play' || setupStep === 'conn') {
+      if (setupStep === 'conn') {
+        // 已连接 NAS：返回键离开设置回到播放（消费）；首启尚未连接：返回键退出应用（不消费）
+        if (knownHasServer) backToPlayback();
+        return knownHasServer;
+      }
+      if (setupStep === 'play') {
         backToPlayback();
         return true;
       }
-      return false;
+      return false; // 播放界面：原生退出应用
     },
   };
 
   // 首启：有凭证直接连，无凭证弹设置
   const saved = await app.vault.load();
+  knownHasServer = !!saved?.server;
   if (saved) void connectAndPlay(saved.rootPath);
   else void openSetup();
 

@@ -29,7 +29,8 @@ class MainActivity : Activity() {
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
             settings.allowFileAccess = true
-            settings.cacheMode = WebSettings.LOAD_DEFAULT
+            // 关闭 WebView 磁盘缓存：图片已走自有 blob 缓存，避免 WebView 数据目录额外占用存储
+            settings.cacheMode = WebSettings.LOAD_NO_CACHE
             // 强制按 device-width 1:1 铺满全屏，避免被 WebView 自动缩放：
             //  - useWideViewPort=true 采用页面声明的 device-width 宽视口（不回退 980px 窄视口）
             //  - loadWithOverviewMode=false 关键！关闭「概述模式」缩放——否则部分 Android TV
@@ -50,8 +51,10 @@ class MainActivity : Activity() {
     /**
      * 遥控器按键拦截：
      *  - KEYCODE_MENU：系统默认用于弹出选项菜单，不会到达 WebView，转发给 __tvOpenSettings。
-     *  - KEYCODE_BACK：默认行为是退出 Activity。壁纸应用应常驻——返回键改为转发给
-     *    window.__tvBack，由 TS 侧决定「设置页内返回」或「播放态忽略」，永不误退应用。
+     *  - KEYCODE_BACK：转发给 window.__tvBack 由其决定：
+     *      · 返回 true（设置页内导航已消费）→ 留在应用；
+     *      · 返回 false（播放界面 / 首启未连接）→ 退出应用（finish）。
+     *    此前无论 TS 返回什么都直接消费，导致播放界面按返回键无法退出，现按返回值处理。
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         when (event.keyCode) {
@@ -61,7 +64,13 @@ class MainActivity : Activity() {
             }
             KeyEvent.KEYCODE_BACK -> {
                 if (event.action == KeyEvent.ACTION_DOWN) {
-                    webView.evaluateJavascript("window.__tvBack && window.__tvBack()", null)
+                    webView.evaluateJavascript(
+                        "window.__tvBack ? window.__tvBack() : true",
+                    ) { result ->
+                        // __tvBack 返回布尔：true=已消费(留应用)，false=退出应用
+                        val consumed = result != null && result.trim() == "true"
+                        if (!consumed) runOnUiThread { finish() }
+                    }
                 }
                 return true
             }
