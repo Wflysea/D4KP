@@ -78,7 +78,8 @@
         color: #cfe0ff;
       }
       .atv-form input[type="text"],
-      .atv-form input[type="password"] {
+      .atv-form input[type="password"],
+      .atv-form select {
         font-size: 18px;
         padding: 12px 14px;
         border-radius: 10px;
@@ -192,6 +193,44 @@
         color: #9fc0ff;
         text-align: center;
         padding: 12px;
+      }
+      /* 手机窄屏适配：TV 布局的字号/间距在竖屏手机上过大，按屏宽收缩 */
+      @media (max-width: 640px) {
+        #atv-setup {
+          padding: 4vh 5vw;
+          gap: 12px;
+        }
+        #atv-setup h1 {
+          font-size: 22px;
+        }
+        .atv-form {
+          width: 92vw;
+          gap: 10px;
+        }
+        .atv-form label {
+          font-size: 14px;
+        }
+        .atv-form input[type="text"],
+        .atv-form input[type="password"],
+        .atv-form select {
+          font-size: 16px;
+          padding: 10px 12px;
+        }
+        .atv-actions {
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .atv-btn {
+          font-size: 15px;
+          padding: 10px 16px;
+        }
+        .atv-hint,
+        .atv-msg {
+          font-size: 13px;
+        }
+        .atv-folders {
+          max-height: 46vh;
+        }
       }
     </style>
   </head>

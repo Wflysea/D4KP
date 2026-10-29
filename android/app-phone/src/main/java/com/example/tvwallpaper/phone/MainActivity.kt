@@ -44,6 +44,18 @@ class MainActivity : Activity() {
         setContentView(webView)
     }
 
+    /**
+     * 系统返回键 / 返回手势：转交 WebView 内的 __phoneBack 决定——
+     * 设置页内做页内导航（返回 true 已消费，不退出）；播放界面返回 false，按惯例退出应用。
+     */
+    override fun onBackPressed() {
+        webView.evaluateJavascript(
+            "(typeof window.__phoneBack === 'function') ? !!window.__phoneBack() : false",
+        ) { consumed ->
+            if (consumed != "true") finish()
+        }
+    }
+
     override fun onDestroy() {
         webView.destroy()
         super.onDestroy()
