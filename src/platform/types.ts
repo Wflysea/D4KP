@@ -58,8 +58,6 @@ export interface StoredCredential {
   autoCleanCache?: boolean;
   /** 缓存上限（MB），缺省 50；实际占用被控制在约此值以内（缓存图片已压缩到屏幕分辨率） */
   cacheQuotaMB?: number;
-  /** 图片显示方式：cover 填满屏幕（裁切边缘）/ contain 完整显示（留黑边）；缺省 cover */
-  fitMode?: 'cover' | 'contain';
 }
 
 /** 凭据保险箱：在原生安全存储（Android Keystore / iOS Keychain）中持久化凭证 */

@@ -26,7 +26,6 @@ export interface AndroidTvApp {
     showSpeed?: boolean,
     autoCleanCache?: boolean,
     cacheQuotaMB?: number,
-    fitMode?: 'cover' | 'contain',
   ): Promise<void>;
   /** 读取已保存凭证并装配核心层上下文；无凭证则用默认端点（首启向导） */
   boot(): Promise<AppContext>;
@@ -76,7 +75,6 @@ export function createAndroidTvApp(): AndroidTvApp {
       showSpeed?: boolean,
       autoCleanCache?: boolean,
       cacheQuotaMB?: number,
-      fitMode?: 'cover' | 'contain',
     ): Promise<void> {
       const cred: StoredCredential = {
         accountId: 'primary',
@@ -87,7 +85,6 @@ export function createAndroidTvApp(): AndroidTvApp {
         showSpeed,
         autoCleanCache,
         cacheQuotaMB,
-        fitMode,
       };
       await vault.save(cred);
     },
