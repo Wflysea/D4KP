@@ -197,7 +197,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     const stage = el.querySelector('#atv-stage') as HTMLElement | null;
     if (!stage) return;
     if (on) {
-      stage.style.position = 'relative';
       if (!stage.querySelector('#atv-paused')) {
         const d = document.createElement('div');
         d.id = 'atv-paused';
@@ -307,7 +306,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     const stage = el.querySelector('#atv-stage') as HTMLElement | null;
     if (!stage) return;
     if (on) {
-      stage.style.position = 'relative';
       if (!stage.querySelector('#atv-loading-badge')) {
         const d = document.createElement('div');
         d.id = 'atv-loading-badge';
