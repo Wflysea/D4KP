@@ -39,6 +39,10 @@ if (typeof document !== 'undefined') {
         },
         { passive: true },
       );
+      // 暴露给原生层：系统返回键/返回手势被 Activity 拦截（默认行为是退出应用），
+      // 由 MainActivity.onBackPressed 调用此函数——设置页内做页内导航（返回 true 已消费），
+      // 播放界面返回 false，原生再执行默认退出。
+      (window as unknown as Record<string, unknown>).__phoneBack = () => nav.back();
     });
   };
   if (document.readyState === 'loading') {
