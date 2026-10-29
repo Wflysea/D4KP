@@ -49,6 +49,13 @@ function makeFakeBridge() {
       calls.push({ setWallpaperFromBlob: key });
       return JSON.stringify({ ok: true });
     },
+    getAppMode() {
+      return 'tv';
+    },
+    setAppMode(mode) {
+      calls.push({ setAppMode: mode });
+      return JSON.stringify({ ok: true, mode });
+    },
     log() {
       /* noop */
     },

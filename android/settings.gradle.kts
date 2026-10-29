@@ -16,4 +16,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "TvWallpaper"
 include(":app")
-include(":app-phone")

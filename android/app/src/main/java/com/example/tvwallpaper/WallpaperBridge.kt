@@ -1,7 +1,9 @@
 package com.example.tvwallpaper
 
 import android.app.Activity
+import android.app.UiModeManager
 import android.content.Context
+import android.content.res.Configuration
 import android.os.Build
 import android.util.Base64
 import android.util.Log
@@ -256,6 +258,35 @@ class WallpaperBridge(private val activity: Activity) {
         } catch (e: Exception) {
             JSONObject().put("ok", false).put("error", e.message ?: e.javaClass.simpleName).toString()
         }
+    }
+
+    // ---- 使用模式（电视 / 手机）----
+    /**
+     * 读取当前使用模式（tv / phone）。未设置时按设备类型自动判定：
+     * Android TV → tv，其余（手机/平板）→ phone。
+     */
+    @JavascriptInterface
+    fun getAppMode(): String {
+        val p = activity.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        return p.getString("app_mode", null) ?: defaultAppMode()
+    }
+
+    /**
+     * 切换使用模式并持久化，随后通知 Activity 调整屏幕方向并重载界面（切到对应交互层）。
+     * 返回 JSON {ok, mode}。
+     */
+    @JavascriptInterface
+    fun setAppMode(mode: String): String {
+        val m = if (mode == "phone") "phone" else "tv"
+        activity.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            .edit().putString("app_mode", m).apply()
+        (activity as? MainActivity)?.applyModeAndReload(m)
+        return JSONObject().put("ok", true).put("mode", m).toString()
+    }
+
+    private fun defaultAppMode(): String {
+        val ui = ctx.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+        return if (ui?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION) "tv" else "phone"
     }
 
     @JavascriptInterface
