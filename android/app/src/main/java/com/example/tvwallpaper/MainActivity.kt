@@ -30,11 +30,16 @@ class MainActivity : Activity() {
             settings.mediaPlaybackRequiresUserGesture = false
             settings.allowFileAccess = true
             settings.cacheMode = WebSettings.LOAD_DEFAULT
-            // TV 分辨率/密度差异大：宽视口 + 概览模式让页面按 device-width 铺满全屏，
-            // 修复设置页内容缩小到屏幕左上角的问题；固定 textZoom 防系统大字体破坏布局
+            // 强制按 device-width 1:1 铺满全屏，避免被 WebView 自动缩放：
+            //  - useWideViewPort=true 采用页面声明的 device-width 宽视口（不回退 980px 窄视口）
+            //  - loadWithOverviewMode=false 关键！关闭「概述模式」缩放——否则部分 Android TV
+            //    会把整页缩放以「概览」宽度，导致设置页内容缩成小框、四周留黑边
+            //  - setInitialScale(100) 锁定初始缩放 100%，textZoom=100 防系统大字体破坏布局
             settings.useWideViewPort = true
-            settings.loadWithOverviewMode = true
+            settings.loadWithOverviewMode = false
             settings.textZoom = 100
+            // 锁定 WebView 初始缩放 100%，配合上面的设置确保 1:1 全屏（setInitialScale 属于 WebView 而非 WebSettings）
+            setInitialScale(100)
             webViewClient = WebViewClient()
             addJavascriptInterface(WallpaperBridge(this@MainActivity), "AndroidWallpaper")
             loadUrl("file:///android_asset/index.html")
