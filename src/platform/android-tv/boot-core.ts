@@ -85,7 +85,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     showSpeed?: boolean;
     autoCleanCache?: boolean;
     cacheQuotaMB?: number;
-    fitMode?: 'cover' | 'contain';
   } | null = null;
   let currentUrl: string | null = null;
   /** 当前显示图片的内容寻址 blob key（设为壁纸时使用），随轮播实时更新 */
@@ -105,8 +104,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
   // —— 缓存自动清理 ——
   let autoCleanCache = true;
   let cacheQuotaMB = 50;
-  // —— 图片显示方式：cover 填满裁切 / contain 完整显示留黑边 ——
-  let fitMode: 'cover' | 'contain' = 'cover';
   let infoTimer: ReturnType<typeof setInterval> | null = null;
   /** 最近下载记录，用于计算最近 5 秒的平均网速 */
   const speedLog: { t: number; bytes: number }[] = [];
@@ -320,7 +317,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         }
         if (currentUrl) URL.revokeObjectURL(currentUrl);
         currentUrl = url;
-        stageNow.innerHTML = `<img class="atv-img" src="${url}" alt="" style="object-fit:${fitMode}" />`;
+        stageNow.innerHTML = `<img class="atv-img" src="${url}" alt="" style="object-fit:cover" />`;
         // 记录当前图的内容寻址 key（与 content-cache 落盘键一致），供「设为壁纸」使用
         void sha256Hex(new TextEncoder().encode(`primary|${item.path}|`).buffer).then(
           (k) => {
@@ -403,7 +400,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       showSpeed = saved?.showSpeed ?? false;
       autoCleanCache = saved?.autoCleanCache ?? true;
       cacheQuotaMB = saved?.cacheQuotaMB ?? 50;
-      fitMode = saved?.fitMode === 'contain' ? 'contain' : 'cover';
       // 启动即按当前上限回收缓存：默认上限下调到 50MB 后，旧版已写满的缓存会在本次启动被清理
       if (autoCleanCache) void app.cache.evictTo(quotaBytes());
       useAppStore.getState().dispatch({ type: 'SCHEDULE', playlist, items: photos });
@@ -444,7 +440,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     showSpeed?: boolean;
     autoCleanCache?: boolean;
     cacheQuotaMB?: number;
-    fitMode?: 'cover' | 'contain';
   }): void {
     setupOpen = true;
     setupStep = 'conn';
@@ -499,7 +494,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           prefill.showSpeed ?? false,
           prefill.autoCleanCache ?? true,
           prefill.cacheQuotaMB ?? 50,
-          prefill.fitMode ?? 'cover',
         );
         const ctx = await app.boot();
         await ctx.dav.list('/', { depth: 1 }); // 验证根目录可读
@@ -512,7 +506,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           prefill.showSpeed ?? false,
           prefill.autoCleanCache ?? true,
           prefill.cacheQuotaMB ?? 50,
-          prefill.fitMode ?? 'cover',
         );
       } catch (err: unknown) {
         const m = err instanceof Error ? err.message : String(err);
@@ -530,7 +523,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         showSpeed: prefill.showSpeed ?? false,
         autoCleanCache: prefill.autoCleanCache ?? true,
         cacheQuotaMB: prefill.cacheQuotaMB ?? 50,
-        fitMode: prefill.fitMode ?? 'cover',
       });
     });
 
@@ -549,7 +541,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     showSpeed: boolean;
     autoCleanCache?: boolean;
     cacheQuotaMB?: number;
-    fitMode?: 'cover' | 'contain';
   }): void {
     setupOpen = true;
     setupStep = 'play';
@@ -567,10 +558,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           <label class="atv-check"><input id="f-speed" type="checkbox" ${prefill.showSpeed ? 'checked' : ''} /> 播放界面显示网速</label>
           <label class="atv-check"><input id="f-autoclean" type="checkbox" ${(prefill.autoCleanCache ?? true) ? 'checked' : ''} /> 自动清理缓存（超上限时删除最旧图片）</label>
           <label>缓存上限（MB，10–2048）<input id="f-quota" type="text" inputmode="numeric" value="${Math.max(10, prefill.cacheQuotaMB ?? 50)}" /></label>
-          <label>图片显示方式<select id="f-fit" class="atv-select">
-            <option value="cover" ${(prefill.fitMode ?? 'cover') === 'cover' ? 'selected' : ''}>填满屏幕（可能裁切边缘）</option>
-            <option value="contain" ${prefill.fitMode === 'contain' ? 'selected' : ''}>完整显示（可能留黑边）</option>
-          </select></label>
           <div id="atv-cache-info" class="atv-hint">当前缓存占用：${escapeHtml(formatBytes(app.cache.size()))}（上限 ${Math.max(10, prefill.cacheQuotaMB ?? 50)} MB）</div>
           <div id="atv-msg" class="atv-msg"></div>
           <div class="atv-actions">
@@ -604,7 +591,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       const autoClean = (el.querySelector('#f-autoclean') as HTMLInputElement).checked;
       const quotaRaw = parseInt((el.querySelector('#f-quota') as HTMLInputElement).value, 10);
       const quota = Number.isFinite(quotaRaw) && quotaRaw >= 10 ? Math.min(2048, quotaRaw) : 100;
-      const fit = (el.querySelector('#f-fit') as HTMLSelectElement).value === 'contain' ? 'contain' : 'cover';
       msgEl.textContent = '正在保存…';
       try {
         await app.setEndpoint(
@@ -623,7 +609,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           speed,
           autoClean,
           quota,
-          fit,
         );
         void connectAndPlay(saved.rootPath);
       } catch (err: unknown) {
@@ -687,7 +672,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         showSpeed: prefill.showSpeed,
         autoCleanCache: prefill.autoCleanCache ?? true,
         cacheQuotaMB: prefill.cacheQuotaMB ?? 50,
-        fitMode: prefill.fitMode ?? 'cover',
       });
     });
   }
@@ -705,7 +689,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     showSpeedOpt?: boolean,
     autoCleanOpt?: boolean,
     cacheQuotaOpt?: number,
-    fitModeOpt?: 'cover' | 'contain',
   ): void {
     setupOpen = true;
     setupStep = 'folders';
@@ -717,7 +700,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       showSpeed: showSpeedOpt,
       autoCleanCache: autoCleanOpt,
       cacheQuotaMB: cacheQuotaOpt,
-      fitMode: fitModeOpt,
     };
     const segs = currentPath.split('/').filter(Boolean);
     const crumbs = ['/'].concat(segs.map((_, i) => '/' + segs.slice(0, i + 1).join('/')));
@@ -755,7 +737,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           showSpeedOpt,
           autoCleanOpt,
           cacheQuotaOpt,
-          fitModeOpt,
         ),
       ),
     );
@@ -772,12 +753,11 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         showSpeed: showSpeedOpt,
         autoCleanCache: autoCleanOpt ?? true,
         cacheQuotaMB: cacheQuotaOpt ?? 50,
-        fitMode: fitModeOpt ?? 'cover',
       }),
     );
     (el.querySelector('#f-pick') as HTMLButtonElement).addEventListener('click', async () => {
       const ep: DavEndpoint = { ...endpoint, rootPath: currentPath };
-      await app.setEndpoint(ep, dwellSec, order, showClockOpt, showSpeedOpt, autoCleanOpt ?? true, cacheQuotaOpt ?? 50, fitModeOpt ?? 'cover');
+      await app.setEndpoint(ep, dwellSec, order, showClockOpt, showSpeedOpt, autoCleanOpt ?? true, cacheQuotaOpt ?? 50);
       // 选定目录后进入「播放设置」页：可调整偏好后一键保存回播放
       renderPlayPage({
         rootPath: currentPath,
@@ -787,7 +767,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         showSpeed: showSpeedOpt ?? false,
         autoCleanCache: autoCleanOpt ?? true,
         cacheQuotaMB: cacheQuotaOpt ?? 50,
-        fitMode: fitModeOpt ?? 'cover',
       });
     });
 
@@ -821,7 +800,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
                 showSpeedOpt,
                 autoCleanOpt,
                 cacheQuotaOpt,
-                fitModeOpt,
               ),
             ),
           );
@@ -853,7 +831,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         showSpeed: saved.showSpeed ?? false,
         autoCleanCache: saved.autoCleanCache ?? true,
         cacheQuotaMB: saved.cacheQuotaMB ?? 50,
-        fitMode: saved.fitMode === 'contain' ? 'contain' : 'cover',
       });
     } else {
       renderConnPage({ server: '', username: '', password: '', verifySsl: true });
@@ -902,7 +879,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         })();
       };
       if (setupStep === 'folders' && setupCtx) {
-        const { endpoint, dwellSec, order, showClock, showSpeed, autoCleanCache, cacheQuotaMB, fitMode } = setupCtx;
+        const { endpoint, dwellSec, order, showClock, showSpeed, autoCleanCache, cacheQuotaMB } = setupCtx;
         renderConnPage({
           server: endpoint.server,
           username: endpoint.username,
@@ -915,7 +892,6 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           showSpeed,
           autoCleanCache: autoCleanCache ?? true,
           cacheQuotaMB: cacheQuotaMB ?? 50,
-          fitMode: fitMode ?? 'cover',
         });
         return true;
       }

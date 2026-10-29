@@ -62,7 +62,6 @@ class WallpaperBridge(private val activity: Activity) {
             putBoolean("showSpeed", o.optBoolean("showSpeed", false))
             putBoolean("autoCleanCache", o.optBoolean("autoCleanCache", true))
             putInt("cacheQuotaMB", o.optInt("cacheQuotaMB", 50))
-            putString("fitMode", o.optString("fitMode", "cover"))
             apply()
         }
     }
@@ -85,7 +84,6 @@ class WallpaperBridge(private val activity: Activity) {
             put("showSpeed", creds.getBoolean("showSpeed", false))
             put("autoCleanCache", creds.getBoolean("autoCleanCache", true))
             put("cacheQuotaMB", creds.getInt("cacheQuotaMB", 50))
-            put("fitMode", creds.getString("fitMode", "cover"))
         }.toString()
     }
 
