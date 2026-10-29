@@ -47,9 +47,15 @@ function joinPath(base: string, seg: string): string {
 
 /**
  * 引导壁纸应用（电视/手机共用）。root 缺省时取 #app 或 body。
+ * opts.platform 区分终端能力：Android TV 桌面（launcher）不读取系统静态壁纸，
+ * 故 TV 端不提供「设为当前壁纸」按钮；手机端保留（手机 launcher 会读系统壁纸）。
  * 返回 app 与 nav；nav 暴露 next/prev/openSettings 供遥控器或触摸调用。
  */
-export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> {
+export async function bootWallpaperApp(
+  root?: HTMLElement,
+  opts?: { platform?: 'tv' | 'phone' },
+): Promise<BootResult> {
+  const platform: 'tv' | 'phone' = opts?.platform ?? 'tv';
   const app = createAndroidTvApp();
   const elRaw =
     root ?? (typeof document !== 'undefined' ? (document.getElementById('app') ?? document.body) : null);
@@ -562,7 +568,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           <div id="atv-msg" class="atv-msg"></div>
           <div class="atv-actions">
             <button id="f-save" type="button" class="atv-btn">保存设置并播放</button>
-            <button id="f-setwp" type="button" class="atv-btn atv-btn-ghost">设为当前壁纸</button>
+            ${platform === 'phone' ? '<button id="f-setwp" type="button" class="atv-btn atv-btn-ghost">设为当前壁纸</button>' : ''}
             <button id="f-clearcache" type="button" class="atv-btn atv-btn-ghost">立即清理</button>
             <button id="f-conn" type="button" class="atv-btn atv-btn-ghost">连接设置</button>
           </div>
@@ -617,8 +623,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       }
     });
 
-    // 设为当前壁纸：把当前正在显示的图片（已缓存）设为 Android 系统壁纸
-    (el.querySelector('#f-setwp') as HTMLButtonElement).addEventListener('click', async () => {
+    // 设为当前壁纸：仅手机端（Android TV 桌面不读取系统静态壁纸，TV 端不渲染该按钮）
+    (el.querySelector('#f-setwp') as HTMLButtonElement | null)?.addEventListener('click', async () => {
       const item = currentItem();
       if (!item) {
         msgEl.textContent = '当前没有可设置的图片';
