@@ -27,7 +27,8 @@ class MainActivity : Activity() {
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
             settings.allowFileAccess = true
-            settings.cacheMode = WebSettings.LOAD_DEFAULT
+            // 关闭 WebView 磁盘缓存：图片已走自有 blob 缓存，避免 WebView 数据目录额外占用存储
+            settings.cacheMode = WebSettings.LOAD_NO_CACHE
             // 强制按 device-width 1:1 铺满全屏，避免被 WebView 自动缩放（与 TV 版一致）：
             //  - useWideViewPort=true 采用页面声明的 device-width 宽视口
             //  - loadWithOverviewMode=false 关闭「概述模式」缩放，防止页面被缩放变小
