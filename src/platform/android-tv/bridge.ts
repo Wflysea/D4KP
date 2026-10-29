@@ -24,6 +24,10 @@ export interface NativeBridge {
   evictBlobs(quotaBytes: number): void;
   /** 把已缓存的壁纸图片（按 blob key）设为系统壁纸，返回 JSON {ok,error} */
   setWallpaperFromBlob(key: string): string;
+  /** 读取当前使用模式：tv（电视）/ phone（手机） */
+  getAppMode(): string;
+  /** 切换使用模式（持久化并由原生重载界面切到对应交互层），返回 JSON {ok,mode} */
+  setAppMode(mode: string): string;
   /** 日志回传原生 Logcat */
   log(level: string, msg: string): void;
 }

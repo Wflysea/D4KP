@@ -558,6 +558,14 @@ export async function bootWallpaperApp(
         <h1>设置 · 播放设置</h1>
         <p class="atv-hint">修改播放偏好后点「保存设置并播放」立即生效，无需重新连接 NAS。连接地址与账号请到「连接设置」页修改。</p>
         <form id="atv-form" class="atv-form">
+          <div class="atv-mode">
+            <label>使用模式<select id="f-mode" class="atv-select">
+              <option value="tv" ${platform === 'tv' ? 'selected' : ''}>电视模式（遥控器 / 横屏大屏）</option>
+              <option value="phone" ${platform === 'phone' ? 'selected' : ''}>手机模式（触摸 / 竖屏）</option>
+            </select></label>
+            <button id="f-applymode" type="button" class="atv-btn atv-btn-ghost">切换模式（界面将重启）</button>
+          </div>
+          <div id="atv-mode-msg" class="atv-hint"></div>
           <label>自动更换间隔（秒，3–3600）<input id="f-dwell" type="text" inputmode="numeric" value="${Math.max(3, prefill.dwellSec)}" /></label>
           <label class="atv-check"><input id="f-random" type="checkbox" ${prefill.order === 'random' ? 'checked' : ''} /> 随机播放（不勾选则按文件夹顺序）</label>
           <label class="atv-check"><input id="f-clock" type="checkbox" ${prefill.showClock ? 'checked' : ''} /> 播放界面显示当前时间</label>
@@ -579,6 +587,33 @@ export async function bootWallpaperApp(
     // 不自动聚焦输入框（避免弹出输入法导致页面缩到左上角）；聚焦「保存」按钮便于遥控器直接操作
     (el.querySelector('#f-save') as HTMLButtonElement).focus();
     const msgEl = el.querySelector('#atv-msg') as HTMLElement;
+
+    // 模式切换：独立于 NAS 连接；切换后由原生调整屏幕方向并重载界面到对应交互层
+    const modeSelect = el.querySelector('#f-mode') as HTMLSelectElement | null;
+    const modeMsgEl = el.querySelector('#atv-mode-msg') as HTMLElement | null;
+    (el.querySelector('#f-applymode') as HTMLButtonElement | null)?.addEventListener('click', () => {
+      const target: 'tv' | 'phone' = modeSelect?.value === 'phone' ? 'phone' : 'tv';
+      if (target === platform) {
+        if (modeMsgEl) modeMsgEl.textContent = '当前已是该模式，无需切换';
+        return;
+      }
+      const bridge = getNativeBridge();
+      if (!bridge) {
+        if (modeMsgEl) modeMsgEl.textContent = '当前环境不支持切换模式（请在 Android App 内使用）';
+        return;
+      }
+      if (modeMsgEl) modeMsgEl.textContent = '正在切换…';
+      try {
+        const res = JSON.parse(bridge.setAppMode(target));
+        if (modeMsgEl) {
+          modeMsgEl.textContent = res?.ok
+            ? `✅ 已切换到${target === 'tv' ? '电视模式' : '手机模式'}，界面即将重启…`
+            : '切换失败';
+        }
+      } catch (e: unknown) {
+        if (modeMsgEl) modeMsgEl.textContent = '切换失败：' + (e instanceof Error ? e.message : String(e));
+      }
+    });
 
     (el.querySelector('#f-save') as HTMLButtonElement).addEventListener('click', async () => {
       const saved = await app.vault.load();
