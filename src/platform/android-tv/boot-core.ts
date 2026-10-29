@@ -7,6 +7,7 @@ import { useAppStore } from '../../app/store';
 import type { AppContext } from '../../app/compose-root';
 import { isSystemPath } from '../../core/sync/sync-engine';
 import { sha256Hex } from '../../webdav/cert';
+import { getNativeBridge } from './bridge';
 import { sniffMime } from './content-cache';
 import type { Playlist, WallpaperItem } from '../../types/domain';
 import type { DavEndpoint } from '../../webdav/types';
@@ -76,6 +77,8 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
     cacheQuotaMB?: number;
   } | null = null;
   let currentUrl: string | null = null;
+  /** 当前显示图片的内容寻址 blob key（设为壁纸时使用），随轮播实时更新 */
+  let currentBlobKey: string | null = null;
   /** 连接成功后的核心层上下文（懒加载下载图片时使用） */
   let davCtx: AppContext | null = null;
   /** 并发去重：同一张图同时触发多次渲染时只发一次请求 */
@@ -267,6 +270,12 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
         if (currentUrl) URL.revokeObjectURL(currentUrl);
         currentUrl = url;
         stageNow.innerHTML = `<img class="atv-img" src="${url}" alt="" />`;
+        // 记录当前图的内容寻址 key（与 content-cache 落盘键一致），供「设为壁纸」使用
+        void sha256Hex(new TextEncoder().encode(`primary|${item.path}|`).buffer).then(
+          (k) => {
+            currentBlobKey = k;
+          },
+        );
         if (useAppStore.getState().paused) showPausedBadge(true);
         try {
           localStorage.setItem('atv.lastPath', item.path); // 记住进度：重启后从这张继续
@@ -504,6 +513,7 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
           <div id="atv-msg" class="atv-msg"></div>
           <div class="atv-actions">
             <button id="f-save" type="button" class="atv-btn">保存设置并播放</button>
+            <button id="f-setwp" type="button" class="atv-btn atv-btn-ghost">设为当前壁纸</button>
             <button id="f-clearcache" type="button" class="atv-btn atv-btn-ghost">立即清理</button>
             <button id="f-conn" type="button" class="atv-btn atv-btn-ghost">连接设置</button>
           </div>
@@ -555,6 +565,35 @@ export async function bootWallpaperApp(root?: HTMLElement): Promise<BootResult> 
       } catch (err: unknown) {
         const m = err instanceof Error ? err.message : String(err);
         msgEl.textContent = `保存失败：${m}`;
+      }
+    });
+
+    // 设为当前壁纸：把当前正在显示的图片（已缓存）设为 Android 系统壁纸
+    (el.querySelector('#f-setwp') as HTMLButtonElement).addEventListener('click', async () => {
+      const item = currentItem();
+      if (!item) {
+        msgEl.textContent = '当前没有可设置的图片';
+        return;
+      }
+      if (!currentBlobKey) {
+        msgEl.textContent = '图片尚未加载完成，请稍候再试';
+        return;
+      }
+      msgEl.textContent = '正在设置壁纸…';
+      const bridge = getNativeBridge();
+      if (!bridge) {
+        msgEl.textContent = '当前环境不支持设置壁纸（请在 Android App 内使用）';
+        return;
+      }
+      try {
+        const res = JSON.parse(bridge.setWallpaperFromBlob(currentBlobKey));
+        if (res.ok) {
+          msgEl.textContent = '✅ 已把当前图片设为系统壁纸';
+        } else {
+          msgEl.textContent = '设置失败：' + (res.error ?? '未知错误');
+        }
+      } catch (e: unknown) {
+        msgEl.textContent = '设置失败：' + (e instanceof Error ? e.message : String(e));
       }
     });
 

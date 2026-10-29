@@ -22,6 +22,8 @@ export interface NativeBridge {
   loadBlob(key: string): string | null;
   blobSize(): number;
   evictBlobs(quotaBytes: number): void;
+  /** 把已缓存的壁纸图片（按 blob key）设为系统壁纸，返回 JSON {ok,error} */
+  setWallpaperFromBlob(key: string): string;
   /** 日志回传原生 Logcat */
   log(level: string, msg: string): void;
 }

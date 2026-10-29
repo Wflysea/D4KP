@@ -6,6 +6,8 @@ import android.os.Build
 import android.util.Base64
 import android.util.Log
 import android.view.WindowManager
+import android.app.WallpaperManager
+import android.graphics.BitmapFactory
 import android.webkit.JavascriptInterface
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
@@ -231,6 +233,28 @@ class WallpaperBridge(private val activity: Activity) {
             if (total <= quotaBytes) break
             total -= f.length()
             f.delete()
+        }
+    }
+
+    /**
+     * 把已缓存的壁纸图片（按内容寻址 blob key）设为系统壁纸。
+     * 复用现有 blob 缓存，不重新下载；TV 上若系统不支持会捕获异常并以 error 返回，不崩溃。
+     */
+    @JavascriptInterface
+    fun setWallpaperFromBlob(key: String): String {
+        return try {
+            val f = File(blobsDir, sanitize(key))
+            if (!f.exists()) {
+                return JSONObject().put("ok", false).put("error", "图片尚未缓存，请先显示该图片").toString()
+            }
+            val bytes = f.readBytes()
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                ?: return JSONObject().put("ok", false).put("error", "图片解码失败").toString()
+            val wm = WallpaperManager.getInstance(ctx)
+            wm.setBitmap(bmp)
+            JSONObject().put("ok", true).toString()
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message ?: e.javaClass.simpleName).toString()
         }
     }
 
