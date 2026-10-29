@@ -6,7 +6,7 @@ import { bootWallpaperApp } from './boot-core';
 
 if (typeof document !== 'undefined') {
   const start = () => {
-    void bootWallpaperApp().then(({ nav }) => {
+    void bootWallpaperApp(undefined, { platform: 'phone' }).then(({ nav }) => {
       let sx = 0;
       let sy = 0;
       document.addEventListener(

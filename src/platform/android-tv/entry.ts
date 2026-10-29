@@ -4,7 +4,7 @@
 import { bootWallpaperApp } from './boot-core';
 
 export async function bootAndroidTv(root?: HTMLElement): Promise<void> {
-  const { app, nav } = await bootWallpaperApp(root);
+  const { app, nav } = await bootWallpaperApp(root, { platform: 'tv' });
   app.host.onRemoteKey((e) => {
     if (e.action !== 'down') return;
     if (e.code === 'menu' || e.code === 'back') {
